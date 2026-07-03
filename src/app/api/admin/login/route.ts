@@ -126,7 +126,9 @@ export async function POST(request: NextRequest) {
     // Set admin session cookie
     response.cookies.set('admin-session', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      // Match the deployment scheme (like NextAuth): a Secure cookie served
+      // over plain HTTP is silently dropped by browsers, breaking admin login.
+      secure: (process.env.NEXTAUTH_URL ?? '').startsWith('https'),
       sameSite: 'lax',
       maxAge: 8 * 60 * 60, // 8 hours
       path: '/'

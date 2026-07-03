@@ -21,7 +21,8 @@ export async function POST(request: NextRequest) {
   // Clear admin session cookie
   response.cookies.set('admin-session', '', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    // Must match the login cookie's flags or the browser won't clear it.
+    secure: (process.env.NEXTAUTH_URL ?? '').startsWith('https'),
     sameSite: 'lax',
     maxAge: 0,
     path: '/'
