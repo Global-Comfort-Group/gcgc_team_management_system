@@ -92,7 +92,7 @@ import DuplicateTaskDialog from '@/components/tasks/DuplicateTaskDialog'
 import { MoveToBoardDialog } from '@/components/tasks/MoveToBoardDialog'
 import { BulkTaskActionsDialog } from '@/components/tasks/bulk-task-actions-dialog'
 import BoardSettingsDialog from '@/components/tasks/BoardSettingsDialog'
-import { isOverdueStatus } from '@/lib/overdue'
+import { isTaskOverdue } from '@/lib/overdue'
 
 interface Task {
   id: string
@@ -101,6 +101,7 @@ interface Task {
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
   dueDate?: string
   startDate?: string
+  memberSubmittedAt?: string | null
   status: 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'COMPLETED'
   customStatusId?: string | null
   progressPercentage: number
@@ -1942,8 +1943,7 @@ export default function TasksPage() {
 
                                 {/* Meta footer: priority, due date, subtasks, comments, weight, SLA, meeting */}
                                 {(() => {
-                                  const _sot = new Date(); _sot.setHours(0, 0, 0, 0)
-                                  const overdue = task.dueDate && new Date(task.dueDate) < _sot && isOverdueStatus(task.status)
+                                  const overdue = isTaskOverdue(task)
                                   return (
                                     <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap text-[11px] text-gray-500 mb-2.5">
                                       <span className="inline-flex items-center gap-1">

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestSession } from '@/lib/api-auth'
 import { prisma } from '@/lib/prisma'
-import { isOverdueStatus } from '@/lib/overdue'
+import { isTaskOverdue } from '@/lib/overdue'
 
 export async function GET(req: NextRequest) {
   try {
@@ -15,9 +15,6 @@ export async function GET(req: NextRequest) {
     if (role !== 'LEADER' && role !== 'ADMIN') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
-
-    const startOfToday = new Date()
-    startOfToday.setHours(0, 0, 0, 0)
 
     let uniqueUsers: Array<{
       id: string
@@ -87,7 +84,7 @@ export async function GET(req: NextRequest) {
       },
       select: {
         userId: true,
-        task: { select: { status: true, dueDate: true } },
+        task: { select: { status: true, dueDate: true, memberSubmittedAt: true } },
       },
     })
 
@@ -101,7 +98,7 @@ export async function GET(req: NextRequest) {
       const st = row.task.status
       s.byStatus[st] = (s.byStatus[st] || 0) + 1
       s.total += 1
-      if (isOverdueStatus(st) && row.task.dueDate && row.task.dueDate < startOfToday) {
+      if (isTaskOverdue(row.task)) {
         s.overdue += 1
       }
     }

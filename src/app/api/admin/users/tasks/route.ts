@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/auth/get-admin-session'
 import { prisma } from '@/lib/prisma'
 import { TaskStatus, UserRole } from '@prisma/client'
-import { isOverdueStatus } from '@/lib/overdue'
+import { isTaskOverdue } from '@/lib/overdue'
 
 export async function GET(req: NextRequest) {
   try {
@@ -220,11 +220,8 @@ export async function GET(req: NextRequest) {
         userRelationships.push('collaborator')
       })
 
-      // Check if task is overdue
-      const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0)
-      const isOverdue = !!task.dueDate &&
-        new Date(task.dueDate) < startOfToday &&
-        isOverdueStatus(task.status)
+      // Check if task is overdue (late-submitted IN_REVIEW tasks stay overdue)
+      const isOverdue = isTaskOverdue(task)
 
       // Determine task type based on relationships
       let taskTypeLabel = 'Individual'

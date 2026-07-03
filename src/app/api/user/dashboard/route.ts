@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestSession } from '@/lib/api-auth'
 import { prisma } from '@/lib/prisma'
-import { OVERDUE_EXCLUDED_STATUSES } from '@/lib/overdue'
+import { OVERDUE_EXCLUDED_STATUSES, isTaskOverdue } from '@/lib/overdue'
 
 export const dynamic = 'force-dynamic'
 
@@ -75,19 +75,30 @@ export async function GET(req: NextRequest) {
         }
       }) : 0,
 
-      // Overdue tasks (excluding subtasks - they're managed within parent task)
-      prisma.task.count({
-        where: {
+      // Overdue tasks (excluding subtasks - they're managed within parent task).
+      // In Review tasks submitted after their due date still count; Prisma
+      // can't compare two columns, so those are fetched and filtered.
+      (async () => {
+        const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0)
+        const scope = {
           OR: [
             { assigneeId: userId },
             ...(session.user.role === 'LEADER' ? [{ teamId: { in: teamIds } }] : [])
           ],
-          dueDate: { lt: (() => { const d = new Date(); d.setHours(0,0,0,0); return d })() },
-          // Exclude Completed/Cancelled and In Review (awaiting approval, not overdue).
-          status: { notIn: OVERDUE_EXCLUDED_STATUSES },
+          dueDate: { lt: startOfToday },
           parentId: null // Only count parent tasks, not subtasks
         }
-      }),
+        const [activeOverdue, inReviewCandidates] = await Promise.all([
+          prisma.task.count({
+            where: { ...scope, status: { notIn: OVERDUE_EXCLUDED_STATUSES } }
+          }),
+          prisma.task.findMany({
+            where: { ...scope, status: 'IN_REVIEW' },
+            select: { status: true, dueDate: true, memberSubmittedAt: true }
+          })
+        ])
+        return activeOverdue + inReviewCandidates.filter(t => isTaskOverdue(t)).length
+      })(),
 
       // Recent tasks (last 5)
       prisma.task.findMany({

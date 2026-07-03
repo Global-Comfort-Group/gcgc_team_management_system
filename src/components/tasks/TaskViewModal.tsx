@@ -39,6 +39,7 @@ import { useSession } from 'next-auth/react'
 import { Progress } from '@/components/ui/progress'
 import { splitMentions } from '@/lib/mentions'
 import { describeRecurrence, type RecurringFrequency } from '@/lib/recurring'
+import { isTaskOverdue } from '@/lib/overdue'
 
 interface Task {
   id: string
@@ -2069,7 +2070,7 @@ export default function TaskViewModal({
                 <Clock className="h-4 w-4 text-gray-500" />
                 <span className="text-gray-600">Due:</span>
                 <span className="font-medium">{format(new Date(task.dueDate), 'EEEE, MMM dd, yyyy')}</span>
-                {(() => { const sot = new Date(); sot.setHours(0,0,0,0); return new Date(task.dueDate) < sot })() && task.status !== 'COMPLETED' && (
+                {isTaskOverdue(task) && (
                   <Badge variant="destructive" className="ml-2">Overdue</Badge>
                 )}
                 {/* Leader can extend due date for assignees */}

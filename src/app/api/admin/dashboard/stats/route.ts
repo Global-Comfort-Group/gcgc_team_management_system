@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/auth/get-admin-session'
 import { prisma } from '@/lib/prisma'
 import { UserRole } from '@prisma/client'
-import { OVERDUE_EXCLUDED_STATUSES } from '@/lib/overdue'
+import { OVERDUE_EXCLUDED_STATUSES, isTaskOverdue } from '@/lib/overdue'
 
 export async function GET(req: NextRequest) {
   try {
@@ -71,14 +71,25 @@ export async function GET(req: NextRequest) {
       prisma.task.count({ where: { isRecurring: { not: true }, status: 'COMPLETED' } }),
       prisma.task.count({ where: { isRecurring: { not: true }, status: 'IN_PROGRESS' } }),
       prisma.task.count({ where: { isRecurring: { not: true }, status: 'TODO' } }),
-      prisma.task.count({
-        where: {
-          isRecurring: { not: true },
-          // In Review tasks are awaiting approval, not overdue — exclude them.
-          status: { notIn: OVERDUE_EXCLUDED_STATUSES },
-          dueDate: { lt: (() => { const d = new Date(); d.setHours(0,0,0,0); return d })() }
-        }
-      })
+      (async () => {
+        const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0)
+        const [activeOverdue, inReviewCandidates] = await Promise.all([
+          prisma.task.count({
+            where: {
+              isRecurring: { not: true },
+              status: { notIn: OVERDUE_EXCLUDED_STATUSES },
+              dueDate: { lt: startOfToday }
+            }
+          }),
+          // In Review tasks submitted AFTER their due date still count as
+          // overdue. Prisma can't compare two columns, so fetch and filter.
+          prisma.task.findMany({
+            where: { isRecurring: { not: true }, status: 'IN_REVIEW', dueDate: { lt: startOfToday } },
+            select: { status: true, dueDate: true, memberSubmittedAt: true }
+          })
+        ])
+        return activeOverdue + inReviewCandidates.filter(t => isTaskOverdue(t)).length
+      })()
     ])
 
     // Hierarchy distribution
