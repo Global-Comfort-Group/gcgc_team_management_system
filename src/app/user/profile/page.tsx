@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
 import { avatarEvents } from '@/lib/avatar-events'
 import { NotificationSettings } from '@/components/settings/NotificationSettings'
+import { ApiTokensCard } from '@/components/settings/ApiTokensCard'
 
 interface UserProfile {
   id: string
@@ -646,6 +647,9 @@ export default function UserProfilePage() {
 
           {/* Notification Settings */}
           <NotificationSettings />
+
+          {/* API Tokens */}
+          <ApiTokensCard />
 
           {/* Change Password Card */}
           <Card className="border border-slate-200 rounded-xl shadow-sm">

@@ -72,8 +72,26 @@ model User {
   emailNotifications     Boolean            @default(true)
   pushNotifications      Boolean            @default(true)
   pushSubscriptions      PushSubscription[]
+  apiTokens              ApiToken[]         @relation("UserApiTokens")
 
   @@map("users")
+}
+
+// Personal API token for the public task-creation API. The raw token is shown
+// once at creation; only its SHA-256 hash is stored. Tasks created with a token
+// are owned by `user`. Revocation is soft (set `revokedAt`).
+model ApiToken {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String    // human label, e.g. "my-agent"
+  tokenHash  String    @unique // SHA-256 hex of the raw token
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation("UserApiTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("api_tokens")
 }
 
 model Notification {
