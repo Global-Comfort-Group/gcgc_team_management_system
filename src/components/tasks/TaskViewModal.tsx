@@ -398,6 +398,11 @@ export default function TaskViewModal({
 
   // Recurring series management state
   const [recurringDialogOpen, setRecurringDialogOpen] = useState(false)
+  // Full-size image preview (lightbox). We show comment images in-app instead of
+  // navigating to the OSS URL, because Alibaba OSS force-downloads images served
+  // from its default endpoint (Content-Disposition: attachment + x-oss-force-download),
+  // so window.open() saves the file instead of previewing it.
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [recurringSettings, setRecurringSettings] = useState<{
     id: string
     recurringFrequency: string | null
@@ -1600,7 +1605,7 @@ export default function TaskViewModal({
                         src={effectiveUrl}
                         alt="Comment attachment"
                         className="mt-2 max-w-xs rounded-lg border cursor-pointer hover:opacity-90"
-                        onClick={() => window.open(effectiveUrl, '_blank')}
+                        onClick={() => setPreviewImage(effectiveUrl)}
                       />
                     )
                   }
@@ -3202,6 +3207,20 @@ export default function TaskViewModal({
             </div>
           </div>
         </div>
+          {/* Full-size image preview (lightbox). Renders the image in-app so it
+              previews instead of force-downloading from the OSS default endpoint. */}
+          <Dialog open={!!previewImage} onOpenChange={(o) => { if (!o) setPreviewImage(null) }}>
+            <DialogContent className="max-w-5xl w-fit bg-transparent border-0 shadow-none p-0">
+              <DialogTitle className="sr-only">Image preview</DialogTitle>
+              {previewImage && (
+                <img
+                  src={previewImage}
+                  alt="Comment attachment preview"
+                  className="max-h-[85vh] w-auto max-w-full mx-auto rounded-lg object-contain"
+                />
+              )}
+            </DialogContent>
+          </Dialog>
       </DialogContent>
     </Dialog>
   )
