@@ -5,6 +5,7 @@ import { authenticateApiToken } from '@/lib/api-token'
 import { resolveTeamBoardLink } from '@/lib/team-board'
 import { setTaskAssignees } from '@/lib/task-assignees'
 import { rateLimit } from '@/lib/rate-limit'
+import { accessibleBoardWhere } from '@/lib/board-access'
 
 // Accepts a full ISO datetime or a bare YYYY-MM-DD (stored at UTC midnight).
 const dateString = z
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
     board = await prisma.kanbanBoard.findFirst({
       where: {
         id: body.boardId,
-        OR: [{ ownerId: user.id }, { members: { some: { userId: user.id } } }],
+        ...accessibleBoardWhere(user.id),
       },
       select: { id: true, name: true },
     })
