@@ -93,7 +93,7 @@ import DuplicateTaskDialog from '@/components/tasks/DuplicateTaskDialog'
 import { MoveToBoardDialog } from '@/components/tasks/MoveToBoardDialog'
 import { BulkTaskActionsDialog } from '@/components/tasks/bulk-task-actions-dialog'
 import BoardSettingsDialog from '@/components/tasks/BoardSettingsDialog'
-import { isTaskOverdue } from '@/lib/overdue'
+import { getScheduleHealth } from '@/lib/schedule-health'
 
 interface Task {
   id: string
@@ -1945,7 +1945,8 @@ export default function TasksPage() {
 
                                 {/* Meta footer: priority, due date, subtasks, comments, weight, SLA, meeting */}
                                 {(() => {
-                                  const overdue = isTaskOverdue(task)
+                                  // Weekly schedule-health, so the red date text agrees with the badge.
+                                  const overdue = getScheduleHealth(task) === 'DELAYED'
                                   return (
                                     <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap text-[11px] text-gray-500 mb-2.5">
                                       <span className="inline-flex items-center gap-1">

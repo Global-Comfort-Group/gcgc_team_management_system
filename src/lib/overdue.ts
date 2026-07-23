@@ -21,7 +21,7 @@ export interface OverdueCheckable {
   memberSubmittedAt?: Date | string | null
 }
 
-export function startOfDay(d: Date): Date {
+function startOfDay(d: Date): Date {
   const s = new Date(d)
   s.setHours(0, 0, 0, 0)
   return s

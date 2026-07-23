@@ -38,45 +38,59 @@ export function getScheduleHealth(
 ): ScheduleHealth | null
 ```
 
-Rules — day-granular, matching the existing overdue boundary (a task due
-*today* is not late; anything strictly past the due day is):
+Rules — **week-granular (weeks run Monday–Sunday).** The comparison unit is the
+deadline's calendar week, not its exact day. Let `week(d)` = the Monday 00:00 of
+the Mon–Sun week containing `d`. A task stays fine for the whole of its deadline
+week and is only late once that week has fully passed.
 
 | Task state | Condition | Result |
 |---|---|---|
 | No `dueDate` | — | `null` (no badge) |
 | `CANCELLED` / `BACKLOG` | parked / called off | `null` (no badge) |
-| Done (`IN_REVIEW` or `COMPLETED`) | `memberSubmittedAt` on/before due day | `AHEAD` |
-| Done (`IN_REVIEW` or `COMPLETED`) | `memberSubmittedAt` after due day | `DELAYED` |
-| Active (`TODO` / `IN_PROGRESS`) | now past due day | `DELAYED` |
-| Active (`TODO` / `IN_PROGRESS`) | now on/before due day | `ON_TRACK` |
+| Done (`IN_REVIEW` or `COMPLETED`) | `week(finish)` ≤ `week(dueDate)` | `AHEAD` |
+| Done (`IN_REVIEW` or `COMPLETED`) | `week(finish)` > `week(dueDate)` | `DELAYED` |
+| Active (`TODO` / `IN_PROGRESS`) | `week(now)` ≤ `week(dueDate)` | `ON_TRACK` |
+| Active (`TODO` / `IN_PROGRESS`) | `week(now)` > `week(dueDate)` | `DELAYED` |
+
+`finish` = `memberSubmittedAt ?? leaderEvaluatedAt` (see fallback below).
+
+Worked example (weeks: A = Jun 29–Jul 5, B = Jul 6–12, C = Jul 13–19; today = Wed
+Jul 8, week B):
+- Active, due **Mon Jul 6** (earlier this week) → **On Track** (still week B), even
+  though the exact due date has passed. Becomes **Delayed** only from Mon Jul 13.
+- Active, due **Jul 2** (week A, passed) → **Delayed**.
+- Active, due **Jul 15** (week C, future) → **On Track**.
+- Done, submitted **Jul 8** for a task due **Jul 6** (same week B) → **Ahead**.
+- Done, submitted **Jul 8** (week B) for a task due **Jul 2** (week A) → **Delayed**.
 
 Invariants and edge cases:
 
-- **`DELAYED` coincides with `isTaskOverdue()` for active + `IN_REVIEW` tasks,
-  but not for `COMPLETED`.** `isTaskOverdue` treats `COMPLETED` as *never
-  overdue* (an actionable signal — nothing to act on once done). Schedule-health
-  is a *historical* judgment, so a task **completed after its due day is
-  `DELAYED`** even though `isTaskOverdue` returns `false` for it. This is the one
-  intentional divergence. For every non-`COMPLETED` status, `health ===
-  'DELAYED'` iff `isTaskOverdue(task, now)`. The badge's "Delayed" state
-  supersedes the old standalone overdue indicator on active tasks.
-- **`AHEAD` reuses the overdue rule's finish reference:** `memberSubmittedAt`
-  (when the member moved the task to review / marked it done), *not*
-  `leaderEvaluatedAt`. A task submitted on time is never penalized for approval
-  delay — consistent with how `isTaskOverdue` already treats `IN_REVIEW`.
-- **A done task submitted exactly on the due day** is `AHEAD` (day-granular:
-  "not late" ⇒ not `DELAYED` ⇒ `AHEAD`). We fold on-time into `AHEAD` rather
-  than adding a fourth "On Time" state, to keep this simple. (Revisit only if
-  the user later wants an explicit on-time bucket.)
-- **Done task with no `memberSubmittedAt`** (legacy rows): the finish reference
-  is `memberSubmittedAt ?? leaderEvaluatedAt`. If both are null, an `IN_REVIEW`
-  task falls back to comparing **now** (matching `isTaskOverdue`'s IN_REVIEW
-  fallback, so the two stay consistent), while a `COMPLETED` task with no stamps
-  returns `null` (no badge) rather than guess when it finished.
+- **Weekly ≠ the day-based `isTaskOverdue`.** This badge no longer tracks
+  `isTaskOverdue` (which stays day-granular and drives overdue *counts,
+  notifications, and the cron*). A task past its exact due date but still inside
+  its deadline week is `isTaskOverdue === true` yet schedule-health `ON_TRACK`.
+  That is intended — the two answer different questions (actionable-overdue vs
+  weekly schedule-health). Only `getScheduleHealth` changed; `isTaskOverdue` and
+  its callers are untouched.
+- **`AHEAD`/`DELAYED` finish reference** is `memberSubmittedAt`, falling back to
+  `leaderEvaluatedAt` — the member's submission, not blamed for approval delay.
+- **Done within (or before) the deadline week is `AHEAD`.** A task submitted late
+  in its own deadline week still counts as `AHEAD`; only a *later* week is
+  `DELAYED`. Done tasks never show `ON_TRACK` (that state is for pending work).
+- **Done task with no `memberSubmittedAt`** (legacy rows): finish =
+  `memberSubmittedAt ?? leaderEvaluatedAt`. If both are null, an `IN_REVIEW` task
+  falls back to comparing **now**, while a `COMPLETED` task with no stamps returns
+  `null` (no badge) rather than guess when it finished.
 
-Unit tests mirror `src/lib/overdue.test.ts`, covering: no due date, active
-before/after due, done submitted before/on/after due, CANCELLED/BACKLOG,
-legacy null-timestamp fallback, and the `DELAYED === isTaskOverdue` invariant.
+Unit tests cover: no due date, CANCELLED/BACKLOG, active in a past/current/future
+week (incl. the "on track until the week ends" transition), done finished
+before/within/after the deadline week, legacy null-timestamp fallback, and ISO
+string inputs.
+
+**UI reconciliation:** on the user tasks list the due-date text currently turns
+red via day-based `isTaskOverdue`. To avoid a "red date + On Track badge"
+mismatch, that red styling is switched to the weekly `getScheduleHealth(...) ===
+'DELAYED'` so the text and badge always agree.
 
 ### Rendering — one reusable component
 
