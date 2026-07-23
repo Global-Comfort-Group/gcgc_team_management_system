@@ -216,6 +216,23 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
           <DialogDescription>Customize “{boardName}”.</DialogDescription>
         </DialogHeader>
 
+        <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2">
+          <span className="text-xs font-semibold text-muted-foreground shrink-0">Board ID</span>
+          <code className="flex-1 truncate font-mono text-xs" title={boardId}>{boardId}</code>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs shrink-0"
+            onClick={async () => {
+              try { await navigator.clipboard.writeText(boardId); toast({ title: 'Board ID copied' }) }
+              catch { toast({ title: 'Copy failed', description: boardId }) }
+            }}
+          >
+            <Copy className="h-3.5 w-3.5" /> Copy
+          </Button>
+        </div>
+
         <div className="inline-flex items-center gap-1 rounded-md border p-0.5 self-start">
           {(['statuses', 'fields', 'forms'] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}

@@ -52,10 +52,14 @@ Rules — day-granular, matching the existing overdue boundary (a task due
 
 Invariants and edge cases:
 
-- **`DELAYED` ≡ `isTaskOverdue()`.** Implement `getScheduleHealth` so that
-  `health === 'DELAYED'` iff `isTaskOverdue(task, now)` returns `true`. The two
-  concepts never diverge; the badge's "Delayed" state supersedes the old
-  standalone overdue indicator.
+- **`DELAYED` coincides with `isTaskOverdue()` for active + `IN_REVIEW` tasks,
+  but not for `COMPLETED`.** `isTaskOverdue` treats `COMPLETED` as *never
+  overdue* (an actionable signal — nothing to act on once done). Schedule-health
+  is a *historical* judgment, so a task **completed after its due day is
+  `DELAYED`** even though `isTaskOverdue` returns `false` for it. This is the one
+  intentional divergence. For every non-`COMPLETED` status, `health ===
+  'DELAYED'` iff `isTaskOverdue(task, now)`. The badge's "Delayed" state
+  supersedes the old standalone overdue indicator on active tasks.
 - **`AHEAD` reuses the overdue rule's finish reference:** `memberSubmittedAt`
   (when the member moved the task to review / marked it done), *not*
   `leaderEvaluatedAt`. A task submitted on time is never penalized for approval
@@ -64,9 +68,11 @@ Invariants and edge cases:
   "not late" ⇒ not `DELAYED` ⇒ `AHEAD`). We fold on-time into `AHEAD` rather
   than adding a fourth "On Time" state, to keep this simple. (Revisit only if
   the user later wants an explicit on-time bucket.)
-- **Done task with no `memberSubmittedAt`** (legacy rows): fall back to
-  `leaderEvaluatedAt`; if that is also null, return `null` (no badge) rather
-  than guess.
+- **Done task with no `memberSubmittedAt`** (legacy rows): the finish reference
+  is `memberSubmittedAt ?? leaderEvaluatedAt`. If both are null, an `IN_REVIEW`
+  task falls back to comparing **now** (matching `isTaskOverdue`'s IN_REVIEW
+  fallback, so the two stay consistent), while a `COMPLETED` task with no stamps
+  returns `null` (no badge) rather than guess when it finished.
 
 Unit tests mirror `src/lib/overdue.test.ts`, covering: no due date, active
 before/after due, done submitted before/on/after due, CANCELLED/BACKLOG,

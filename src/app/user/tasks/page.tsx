@@ -86,6 +86,7 @@ import { cn } from '@/lib/utils'
 import { format, isAfter, subDays } from 'date-fns'
 import TaskForm from '@/components/tasks/TaskForm'
 import TaskViewModal from '@/components/tasks/TaskViewModal'
+import { ScheduleHealthBadge } from '@/components/tasks/ScheduleHealthBadge'
 import TimelineView from '@/components/tasks/TimelineView'
 import type { TimelineZoom } from '@/lib/timeline'
 import DuplicateTaskDialog from '@/components/tasks/DuplicateTaskDialog'
@@ -1954,9 +1955,7 @@ export default function TasksPage() {
                                         <span className={`inline-flex items-center gap-1 ${overdue ? 'text-red-600 font-semibold' : 'text-gray-600'}`}>
                                           <Clock className="h-3 w-3" />
                                           {format(new Date(task.dueDate), 'MMM dd')}
-                                          {overdue && (
-                                            <Badge className="text-[10px] px-1 py-0 h-4 bg-red-500 text-white">OVERDUE</Badge>
-                                          )}
+                                          <ScheduleHealthBadge task={task} compact />
                                         </span>
                                       )}
                                       {task.subtasks && task.subtasks.length > 0 && (
