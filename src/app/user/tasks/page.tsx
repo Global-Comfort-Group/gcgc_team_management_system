@@ -103,6 +103,7 @@ interface Task {
   dueDate?: string
   startDate?: string
   memberSubmittedAt?: string | null
+  leaderEvaluatedAt?: string | null
   status: 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'COMPLETED'
   customStatusId?: string | null
   progressPercentage: number

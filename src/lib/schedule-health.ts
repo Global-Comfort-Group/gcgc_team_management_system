@@ -1,4 +1,4 @@
-import { type OverdueCheckable } from './overdue'
+import { startOfDay, type OverdueCheckable } from './overdue'
 
 // Three-state schedule-health tag, derived (no stored column). Sits alongside
 // isTaskOverdue in overdue.ts and shares its day-granular boundary: a task due
@@ -24,12 +24,6 @@ export interface ScheduleCheckable extends OverdueCheckable {
 const NO_TAG_STATUSES = new Set<string>(['CANCELLED', 'BACKLOG'])
 // Statuses that count as "done" — judged by finish time vs the due day.
 const DONE_STATUSES = new Set<string>(['IN_REVIEW', 'COMPLETED'])
-
-function startOfDay(d: Date): Date {
-  const s = new Date(d)
-  s.setHours(0, 0, 0, 0)
-  return s
-}
 
 export function getScheduleHealth(
   task: ScheduleCheckable,
