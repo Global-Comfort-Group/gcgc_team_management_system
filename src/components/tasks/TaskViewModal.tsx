@@ -1501,7 +1501,10 @@ export default function TaskViewModal({
   // Work-quality options for the subtask rate-to-complete modal. NONE is excluded
   // because it does not satisfy the API's "rate before complete" gate. Colors
   // match the parent task's Work Quality rater.
+  // Full 1–5 work-quality scale, matching the parent task's rater. "1" is NONE
+  // (the app's lowest grade); the API gate accepts it as an explicit rating.
   const SUBTASK_QUALITIES = [
+    { value: 'NONE', label: 'None', score: 1, color: 'bg-gray-400' },
     { value: 'POOR', label: 'Poor', score: 2, color: 'bg-red-400' },
     { value: 'FAIR', label: 'Fair', score: 3, color: 'bg-yellow-400' },
     { value: 'GOOD', label: 'Good', score: 4, color: 'bg-blue-400' },
@@ -2683,7 +2686,7 @@ export default function TaskViewModal({
                                 Due {format(new Date(subtask.dueDate), 'MMM dd')}
                               </span>
                             )}
-                            {subtask.status === 'COMPLETED' && subtask.workQuality && subtask.workQuality !== 'NONE' && (
+                            {subtask.status === 'COMPLETED' && subtask.workQuality && (
                               <Badge
                                 variant="outline"
                                 className={`text-xs ${subtaskQualityBadgeClass(subtask.workQuality)}`}
@@ -3355,21 +3358,27 @@ export default function TaskViewModal({
                   Rate “{ratingSubtask?.title}” to mark it complete.
                 </DialogDescription>
               </DialogHeader>
-              <div className="grid grid-cols-2 gap-2 py-2">
+              <div className="flex justify-center gap-2 py-3">
                 {SUBTASK_QUALITIES.map(q => (
                   <button
                     key={q.value}
                     type="button"
+                    title={q.label}
                     disabled={savingSubtaskRating}
                     onClick={() => ratingSubtask && handleRateAndCompleteSubtask(ratingSubtask, q.value)}
-                    className="flex items-center gap-2 rounded-lg border p-3 text-left hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                    className="flex flex-col items-center gap-1.5 group disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <span className={`h-7 w-7 rounded-full text-white text-xs font-bold flex items-center justify-center ${q.color}`}>{q.score}</span>
-                    <span className="text-sm font-medium text-gray-800">{q.label}</span>
+                    <span className={`h-11 w-11 rounded-full text-white text-base font-bold flex items-center justify-center ring-2 ring-transparent transition-all group-hover:scale-110 group-hover:ring-gray-300 group-hover:ring-offset-1 ${q.color}`}>
+                      {q.score}
+                    </span>
+                    <span className="text-[11px] font-medium text-gray-600">{q.label}</span>
                   </button>
                 ))}
               </div>
-              <div className="flex justify-end">
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-gray-400">
+                  {savingSubtaskRating ? 'Saving…' : 'Pick a score to complete'}
+                </span>
                 <Button variant="ghost" size="sm" disabled={savingSubtaskRating} onClick={() => setRatingSubtask(null)}>Cancel</Button>
               </div>
             </DialogContent>

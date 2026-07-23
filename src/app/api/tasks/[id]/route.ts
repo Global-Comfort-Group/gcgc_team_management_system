@@ -533,20 +533,24 @@ export async function PATCH(
     }
 
     // Work-quality gate: a task cannot be finalized as COMPLETED until its work
-    // quality has been rated (by the approving leader in this request, a senior
-    // override, or an existing rating). Only canComplete users reach COMPLETED
-    // here, so this enforces "rate quality before approve/complete".
+    // quality has been rated. "Rated" means either an existing non-NONE rating,
+    // OR an explicit quality value picked in THIS request — including NONE (the
+    // lowest grade, "1"), since choosing it is still a conscious rating. Only a
+    // completion that carries no rating at all is blocked. Only canComplete users
+    // reach here, so this enforces "consciously rate before approve/complete".
     const becomingCompleted =
       updateData.status === 'COMPLETED' && existingTask.status !== 'COMPLETED'
     if (becomingCompleted) {
-      const ratings = [
-        (updateData as any).workQuality,
-        (updateData as any).seniorWorkQuality,
+      const hasExistingRating = [
         (existingTask as any).workQuality,
         (existingTask as any).seniorWorkQuality,
-      ]
-      const hasRating = ratings.some(r => r != null && r !== 'NONE')
-      if (!hasRating) {
+      ].some(r => r != null && r !== 'NONE')
+      // A quality field present in updateData means the approver explicitly
+      // picked a grade in this request (kept only when canRate — see above).
+      const ratedThisRequest =
+        (updateData as any).workQuality !== undefined ||
+        (updateData as any).seniorWorkQuality !== undefined
+      if (!hasExistingRating && !ratedThisRequest) {
         return NextResponse.json(
           { error: 'Please rate the work quality before completing this task.' },
           { status: 400 }
