@@ -1137,6 +1137,8 @@ export async function DELETE(
         creatorId: true,
         teamId: true,
         recurringParentId: true,
+        parentId: true,
+        assignedById: true,
       }
     })
 
@@ -1162,12 +1164,42 @@ export async function DELETE(
       return NextResponse.json({ error: 'User role is required' }, { status: 403 })
     }
     
-    if (!canDeleteTask(
+    // Direct permission on this task. NOTE: the args are (role, creatorId, userId,
+    // assignedById, teamMemberRole) — previously teamMember.role was mistakenly
+    // passed into the assignedById slot, so the leader branches never fired.
+    let canDelete = canDeleteTask(
       session.user.role,
       existingTask.creatorId,
       session.user.id,
+      existingTask.assignedById ?? undefined,
       teamMember?.role
-    )) {
+    )
+
+    // For a subtask, anyone who could delete/manage its PARENT task may delete it
+    // too (a parent's creator / assigning leader / team leader / admin). This is
+    // what lets a leader clean up subtasks under a task they own.
+    if (!canDelete && existingTask.parentId) {
+      const parent = await prisma.task.findUnique({
+        where: { id: existingTask.parentId },
+        select: { creatorId: true, assignedById: true, teamId: true },
+      })
+      if (parent) {
+        const parentTeamMember = parent.teamId
+          ? await prisma.teamMember.findUnique({
+              where: { userId_teamId: { userId: session.user.id, teamId: parent.teamId } },
+            })
+          : null
+        canDelete = canDeleteTask(
+          session.user.role,
+          parent.creatorId,
+          session.user.id,
+          parent.assignedById ?? undefined,
+          parentTeamMember?.role
+        )
+      }
+    }
+
+    if (!canDelete) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

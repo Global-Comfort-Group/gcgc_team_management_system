@@ -142,6 +142,8 @@ interface Task {
     dueDate?: string
     cascadeOrder?: number | null
     isLocked?: boolean
+    workQuality?: string | null
+    creatorId?: string | null
     assignee?: {
       id: string
       name: string
@@ -348,6 +350,11 @@ export default function TaskViewModal({
   const [newSubtaskDeadline, setNewSubtaskDeadline] = useState<string>('')
   const [addingSubtask, setAddingSubtask] = useState(false)
   const [localSubtasks, setLocalSubtasks] = useState<Task['subtasks']>([])
+  // Subtask rate-to-complete modal + delete confirm.
+  const [ratingSubtask, setRatingSubtask] = useState<NonNullable<Task['subtasks']>[number] | null>(null)
+  const [savingSubtaskRating, setSavingSubtaskRating] = useState(false)
+  const [confirmDeleteSubtask, setConfirmDeleteSubtask] = useState<NonNullable<Task['subtasks']>[number] | null>(null)
+  const [deletingSubtask, setDeletingSubtask] = useState(false)
   const [availableUsers, setAvailableUsers] = useState<Array<{id: string, name: string, email: string, image?: string}>>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
   // Viewer permissions from GET /api/tasks/[id] (authoritative once details load)
@@ -891,9 +898,16 @@ export default function TaskViewModal({
 
     if (canCompleteTask) {
       const isCompleted = subtask.status === 'COMPLETED'
-      newStatus = isCompleted ? 'TODO' : 'COMPLETED'
-      newProgress = isCompleted ? 0 : 100
-      successMessage = isCompleted ? 'Subtask reopened' : 'Subtask marked complete'
+      if (!isCompleted) {
+        // Completing a subtask requires a work-quality rating (the API rejects a
+        // COMPLETED update with no rating). Open the rating modal; the actual
+        // completion happens in handleRateAndCompleteSubtask once a score is chosen.
+        setRatingSubtask(subtask)
+        return
+      }
+      newStatus = 'TODO'
+      newProgress = 0
+      successMessage = 'Subtask reopened'
     } else {
       const submitted = subtask.status === 'IN_REVIEW'
       newStatus = submitted ? 'TODO' : 'IN_REVIEW'
@@ -935,6 +949,77 @@ export default function TaskViewModal({
         description: 'Failed to update subtask. Please try again.',
         variant: 'destructive',
       })
+    }
+  }
+
+  // Rate a subtask's work quality and complete it in one atomic PATCH. The API
+  // gate requires a rating before a task can become COMPLETED, so completion and
+  // rating are sent together.
+  const handleRateAndCompleteSubtask = async (
+    subtask: NonNullable<Task['subtasks']>[number],
+    quality: string
+  ) => {
+    setSavingSubtaskRating(true)
+    // Optimistic update
+    setLocalSubtasks(prev =>
+      (prev || []).map(s =>
+        s.id === subtask.id
+          ? { ...s, status: 'COMPLETED' as typeof s.status, progressPercentage: 100, workQuality: quality }
+          : s
+      )
+    )
+    try {
+      const response = await fetch(`/api/tasks/${subtask.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workQuality: quality, status: 'COMPLETED', progressPercentage: 100 }),
+      })
+      if (!response.ok) throw new Error('Failed to complete subtask')
+      toast({ title: 'Subtask completed', description: `Rated ${quality.toLowerCase()}` })
+      setRatingSubtask(null)
+      onTaskUpdate?.()
+      fetchTaskDetails()
+    } catch (error) {
+      // Revert optimistic update
+      setLocalSubtasks(prev =>
+        (prev || []).map(s =>
+          s.id === subtask.id
+            ? { ...s, status: subtask.status, progressPercentage: subtask.progressPercentage, workQuality: subtask.workQuality }
+            : s
+        )
+      )
+      toast({
+        title: 'Error',
+        description: 'Could not complete the subtask. Please try again.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingSubtaskRating(false)
+    }
+  }
+
+  // Delete a subtask (creator / leader / admin — enforced server-side).
+  const handleDeleteSubtask = async (subtask: NonNullable<Task['subtasks']>[number]) => {
+    const previous = localSubtasks
+    setDeletingSubtask(true)
+    // Optimistic removal
+    setLocalSubtasks(prev => (prev || []).filter(s => s.id !== subtask.id))
+    try {
+      const response = await fetch(`/api/tasks/${subtask.id}`, { method: 'DELETE' })
+      if (!response.ok) throw new Error('Failed to delete subtask')
+      toast({ title: 'Subtask deleted' })
+      setConfirmDeleteSubtask(null)
+      onTaskUpdate?.()
+      fetchTaskDetails()
+    } catch (error) {
+      setLocalSubtasks(previous) // revert
+      toast({
+        title: 'Error',
+        description: 'Could not delete the subtask. You may not have permission.',
+        variant: 'destructive',
+      })
+    } finally {
+      setDeletingSubtask(false)
     }
   }
 
@@ -1412,6 +1497,22 @@ export default function TaskViewModal({
       : pct > 0 ? 'text-orange-600'
       : 'text-slate-500'
   const PROGRESS_PRESETS = [0, 25, 50, 75, maxProgress]
+
+  // Work-quality options for the subtask rate-to-complete modal. NONE is excluded
+  // because it does not satisfy the API's "rate before complete" gate. Colors
+  // match the parent task's Work Quality rater.
+  const SUBTASK_QUALITIES = [
+    { value: 'POOR', label: 'Poor', score: 2, color: 'bg-red-400' },
+    { value: 'FAIR', label: 'Fair', score: 3, color: 'bg-yellow-400' },
+    { value: 'GOOD', label: 'Good', score: 4, color: 'bg-blue-400' },
+    { value: 'EXCELLENT', label: 'Excellent', score: 5, color: 'bg-green-500' },
+  ]
+  const subtaskQualityBadgeClass = (q: string) =>
+    q === 'POOR' ? 'text-red-600 border-red-200'
+      : q === 'FAIR' ? 'text-yellow-700 border-yellow-200'
+      : q === 'GOOD' ? 'text-blue-600 border-blue-200'
+      : q === 'EXCELLENT' ? 'text-green-600 border-green-200'
+      : 'text-gray-600 border-gray-200'
 
   const renderComment = (comment: Comment, isReply = false) => {
     const isAuthor = comment.author.id === session?.user?.id
@@ -2519,6 +2620,12 @@ export default function TaskViewModal({
 
                     const isCascadeStep = subtask.cascadeOrder != null
                     const isLocked = subtask.isLocked === true
+                    // Creator / leader / admin may delete (server enforces). canCompleteTask
+                    // is the server-computed parent finalizer flag (leader/creator/owner/admin).
+                    const canManageSubtask =
+                      canCompleteTask ||
+                      session?.user?.role === 'ADMIN' ||
+                      subtask.creatorId === session?.user?.id
 
                     return (
                       <div
@@ -2576,6 +2683,15 @@ export default function TaskViewModal({
                                 Due {format(new Date(subtask.dueDate), 'MMM dd')}
                               </span>
                             )}
+                            {subtask.status === 'COMPLETED' && subtask.workQuality && subtask.workQuality !== 'NONE' && (
+                              <Badge
+                                variant="outline"
+                                className={`text-xs ${subtaskQualityBadgeClass(subtask.workQuality)}`}
+                                title="Work quality"
+                              >
+                                {subtask.workQuality.charAt(0) + subtask.workQuality.slice(1).toLowerCase()}
+                              </Badge>
+                            )}
                           </div>
                         </div>
                         {isLocked ? (
@@ -2591,6 +2707,16 @@ export default function TaskViewModal({
                               fallbackClassName="text-xs"
                             />
                           )
+                        )}
+                        {!isLocked && canManageSubtask && (
+                          <button
+                            type="button"
+                            title="Delete subtask"
+                            onClick={(e) => { e.stopPropagation(); setConfirmDeleteSubtask(subtask) }}
+                            className="flex-shrink-0 text-gray-400 hover:text-red-600 transition-colors"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         )}
                         {!isLocked && <ChevronRight className="h-4 w-4 text-gray-400 flex-shrink-0" />}
                       </div>
@@ -3217,6 +3343,58 @@ export default function TaskViewModal({
                   className="max-h-[85vh] w-auto max-w-full mx-auto rounded-lg object-contain"
                 />
               )}
+            </DialogContent>
+          </Dialog>
+
+          {/* Rate-to-complete a subtask: pick a work-quality score to finalize it. */}
+          <Dialog open={!!ratingSubtask} onOpenChange={(o) => { if (!o && !savingSubtaskRating) setRatingSubtask(null) }}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Rate work quality</DialogTitle>
+                <DialogDescription>
+                  Rate “{ratingSubtask?.title}” to mark it complete.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid grid-cols-2 gap-2 py-2">
+                {SUBTASK_QUALITIES.map(q => (
+                  <button
+                    key={q.value}
+                    type="button"
+                    disabled={savingSubtaskRating}
+                    onClick={() => ratingSubtask && handleRateAndCompleteSubtask(ratingSubtask, q.value)}
+                    className="flex items-center gap-2 rounded-lg border p-3 text-left hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                  >
+                    <span className={`h-7 w-7 rounded-full text-white text-xs font-bold flex items-center justify-center ${q.color}`}>{q.score}</span>
+                    <span className="text-sm font-medium text-gray-800">{q.label}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="flex justify-end">
+                <Button variant="ghost" size="sm" disabled={savingSubtaskRating} onClick={() => setRatingSubtask(null)}>Cancel</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Delete subtask confirmation. */}
+          <Dialog open={!!confirmDeleteSubtask} onOpenChange={(o) => { if (!o && !deletingSubtask) setConfirmDeleteSubtask(null) }}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Delete subtask?</DialogTitle>
+                <DialogDescription>
+                  “{confirmDeleteSubtask?.title}” will be permanently deleted. This can’t be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="ghost" size="sm" disabled={deletingSubtask} onClick={() => setConfirmDeleteSubtask(null)}>Cancel</Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={deletingSubtask}
+                  onClick={() => confirmDeleteSubtask && handleDeleteSubtask(confirmDeleteSubtask)}
+                >
+                  {deletingSubtask ? 'Deleting…' : 'Delete'}
+                </Button>
+              </div>
             </DialogContent>
           </Dialog>
       </DialogContent>
