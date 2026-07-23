@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react'
 import { CheckSquare, Clock, AlertCircle, ArrowRight, Star, Zap, Target, Activity, Award, Calendar as CalendarIcon, Plus } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { ScheduleHealthBadge } from '@/components/tasks/ScheduleHealthBadge'
 import { Progress } from '@/components/ui/progress'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { UserAvatar } from '@/components/shared/UserAvatar'
@@ -24,6 +25,8 @@ interface Task {
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
   dueDate?: string
   status: 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'COMPLETED' | 'CANCELLED'
+  memberSubmittedAt?: string | null
+  leaderEvaluatedAt?: string | null
   assignee?: {
     id: string
     name: string
@@ -547,6 +550,7 @@ export default function UserDashboard() {
                               Due {format(new Date(task.dueDate), 'MMM dd')}
                             </div>
                           )}
+                          <ScheduleHealthBadge task={task} compact />
                           <Badge variant="outline" className="text-xs border-slate-200 text-slate-700 rounded-md">
                             {task.team?.name || 'Personal'}
                           </Badge>

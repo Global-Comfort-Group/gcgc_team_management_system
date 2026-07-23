@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { ScheduleHealthBadge } from '@/components/tasks/ScheduleHealthBadge'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -60,6 +61,8 @@ interface TaskData {
   status: TaskStatus
   priority: string
   dueDate?: string
+  memberSubmittedAt?: string | null
+  leaderEvaluatedAt?: string | null
   createdAt: string
   updatedAt: string
   assignee?: TaskUser
@@ -459,10 +462,13 @@ export default function UserTasksPage() {
 
                       {/* Due Date */}
                       {task.dueDate && (
-                        <Badge variant={task.isOverdue ? "destructive" : "outline"} className="text-xs mb-3">
-                          <Calendar className="w-3 h-3 mr-1" />
-                          {new Date(task.dueDate).toLocaleDateString()}
-                        </Badge>
+                        <div className="flex items-center justify-center gap-1.5 mb-3">
+                          <Badge variant={task.isOverdue ? "destructive" : "outline"} className="text-xs">
+                            <Calendar className="w-3 h-3 mr-1" />
+                            {new Date(task.dueDate).toLocaleDateString()}
+                          </Badge>
+                          <ScheduleHealthBadge task={task} compact />
+                        </div>
                       )}
 
                       {/* Stats */}
@@ -521,6 +527,7 @@ export default function UserTasksPage() {
                                     {new Date(task.dueDate).toLocaleDateString()}
                                   </Badge>
                                 )}
+                                <ScheduleHealthBadge task={task} compact />
                               </div>
                             </div>
                           </div>
