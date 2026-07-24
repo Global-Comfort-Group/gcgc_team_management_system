@@ -90,7 +90,7 @@ async function call(url: string, method: string, body?: any) {
 
 export default function BoardSettingsDialog({ boardId, boardName, statuses, fields, members, open, onOpenChange, onChanged }: Props) {
   const { toast } = useToast()
-  const [tab, setTab] = useState<'statuses' | 'fields' | 'forms'>('statuses')
+  const [tab, setTab] = useState<'statuses' | 'fields' | 'forms' | 'reviewers'>('statuses')
   const [busy, setBusy] = useState(false)
 
   // Intake forms (fetched when the Forms tab opens)
@@ -102,15 +102,29 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
   const [nfAssignee, setNfAssignee] = useState<string>('')
   const orderedStatusesForForm = [...statuses].filter((s) => s.category !== 'CANCELLED').sort((a, b) => a.position - b.position)
 
+  // Board reviewers pool (fetched when the Reviewers tab opens)
+  type ReviewerUser = { id: string; name?: string | null; email: string }
+  const [reviewers, setReviewers] = useState<ReviewerUser[]>([])
+  const [reviewerCandidates, setReviewerCandidates] = useState<ReviewerUser[]>([])
+  const [reviewersLoaded, setReviewersLoaded] = useState(false)
+  const [newReviewer, setNewReviewer] = useState('')
+
   const loadForms = async () => {
     try {
       const res = await fetch(`/api/boards/${boardId}/forms`)
       if (res.ok) { setForms((await res.json()).forms || []); setFormsLoaded(true) }
     } catch { /* ignore */ }
   }
+  const loadReviewers = async () => {
+    try {
+      const res = await fetch(`/api/boards/${boardId}/reviewers`)
+      if (res.ok) { const d = await res.json(); setReviewers(d.reviewers || []); setReviewerCandidates(d.candidates || []); setReviewersLoaded(true) }
+    } catch { /* ignore */ }
+  }
   useEffect(() => {
     if (open && tab === 'forms' && !formsLoaded) loadForms()
-    if (!open) setFormsLoaded(false)
+    if (open && tab === 'reviewers' && !reviewersLoaded) loadReviewers()
+    if (!open) { setFormsLoaded(false); setReviewersLoaded(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, tab])
 
@@ -139,6 +153,18 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
       setBusy(false)
     }
   }
+
+  const addReviewer = () => guard(async () => {
+    const res = await fetch(`/api/boards/${boardId}/reviewers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: newReviewer }) })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({} as any))).error || 'Failed to add reviewer')
+    setNewReviewer('')
+    await loadReviewers()
+  }, 'Could not add reviewer')
+  const removeReviewer = (userId: string) => guard(async () => {
+    const res = await fetch(`/api/boards/${boardId}/reviewers?userId=${encodeURIComponent(userId)}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('Failed to remove reviewer')
+    await loadReviewers()
+  }, 'Could not remove reviewer')
 
   // ── Statuses ──
   const addStatus = () => {
@@ -234,7 +260,7 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
         </div>
 
         <div className="inline-flex items-center gap-1 rounded-md border p-0.5 self-start">
-          {(['statuses', 'fields', 'forms'] as const).map((t) => (
+          {(['statuses', 'fields', 'forms', 'reviewers'] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-3 h-7 rounded text-xs font-semibold capitalize ${tab === t ? 'bg-blue-600 text-white' : 'text-slate-600 hover:text-slate-900'}`}>
               {t}
@@ -317,7 +343,7 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
               </label>
             </div>
           </>
-        ) : (
+        ) : tab === 'forms' ? (
           <>
             <div className="space-y-2 max-h-[44vh] overflow-y-auto pr-1">
               {!formsLoaded && <p className="text-xs text-muted-foreground py-2">Loading…</p>}
@@ -362,6 +388,42 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
                 <Button onClick={addForm} disabled={!nfTitle.trim() || busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}</Button>
               </div>
               <p className="text-[11px] text-muted-foreground">Anyone with the link can submit (no login). The form asks for the submitter’s name + email and your board’s custom fields, then creates a task here.</p>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="space-y-2 max-h-[44vh] overflow-y-auto pr-1">
+              {!reviewersLoaded && <p className="text-xs text-muted-foreground py-2">Loading…</p>}
+              {reviewersLoaded && reviewers.length === 0 && (
+                <p className="text-xs text-muted-foreground py-2">No reviewers yet. Add leaders below — once a board has reviewers, a task in review must be approved by its assigned reviewer, not the person who did the work.</p>
+              )}
+              {reviewers.map((u) => (
+                <div key={u.id} className="flex items-center gap-2 rounded-lg border p-2">
+                  <span className="grid place-items-center h-7 w-7 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold shrink-0">
+                    {(u.name || u.email)[0]?.toUpperCase()}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{u.name || u.email}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{u.email}</p>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700 shrink-0" disabled={busy} onClick={() => removeReviewer(u.id)}><Trash2 className="h-4 w-4" /></Button>
+                </div>
+              ))}
+            </div>
+            <div className="border-t pt-3 space-y-2">
+              <Label className="text-xs">Add a reviewer (leaders only)</Label>
+              <div className="flex items-center gap-2">
+                <Select value={newReviewer || 'none'} onValueChange={(v) => setNewReviewer(v === 'none' ? '' : v)}>
+                  <SelectTrigger className="flex-1"><SelectValue placeholder="Choose a leader…" /></SelectTrigger>
+                  <SelectContent>
+                    {reviewerCandidates.length === 0
+                      ? <SelectItem value="none" disabled>No leaders available</SelectItem>
+                      : reviewerCandidates.map((c) => <SelectItem key={c.id} value={c.id}>{c.name || c.email}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Button onClick={addReviewer} disabled={!newReviewer || busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}</Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">Reviewers approve and rate work on this board. When a task is moved to In Review, one of them is assigned to review it — the worker can’t rate their own task.</p>
             </div>
           </>
         )}

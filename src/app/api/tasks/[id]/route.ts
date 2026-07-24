@@ -139,7 +139,7 @@ export async function GET(
           orderBy: [{ cascadeOrder: 'asc' }, { createdAt: 'asc' }]
         },
         parent: {
-          select: { id: true, title: true, creatorId: true, assigneeId: true }
+          select: { id: true, title: true, creatorId: true, assigneeId: true, boardId: true }
         },
         _count: {
           select: { subtasks: true }
@@ -256,7 +256,31 @@ export async function GET(
       taskTeamId: task.teamId,
     })
 
-    return NextResponse.json({ ...task, viewerCanComplete, viewerCanChangeStatus, viewerCanRate })
+    // Board Reviewers: if the governing board (this task's, or its parent's for a
+    // subtask) has a reviewer pool, route completion/rating to the assigned
+    // reviewer. `boardHasReviewerPool` lets the client gate each subtask by its
+    // own reviewerId. viewerCanChangeStatus stays legacy so a worker can still
+    // submit for review + assign a reviewer.
+    const reviewerBoardIdView = task.boardId ?? task.parent?.boardId ?? null
+    const boardHasReviewerPool = reviewerBoardIdView
+      ? (await prisma.boardReviewer.count({ where: { boardId: reviewerBoardIdView } })) > 0
+      : false
+    const viewGate = resolveReviewerGate({
+      hasReviewerPool: boardHasReviewerPool,
+      reviewerId: task.reviewerId,
+      viewerId: session.user.id,
+      isAdmin: session.user.role === 'ADMIN',
+      legacyCanFinalize: viewerCanComplete,
+      legacyCanRate: viewerCanRate,
+    })
+
+    return NextResponse.json({
+      ...task,
+      viewerCanComplete: viewGate.canFinalize,
+      viewerCanChangeStatus,
+      viewerCanRate: viewGate.canRate,
+      boardHasReviewerPool,
+    })
   } catch (error) {
     console.error('Task GET error:', error)
     return NextResponse.json(
