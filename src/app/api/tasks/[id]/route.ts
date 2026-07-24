@@ -8,6 +8,7 @@ import { autoSyncTask, deleteSyncedTask } from '@/lib/calendar-sync-helper'
 import { getNextOccurrenceDate } from '@/lib/recurring'
 import { setTaskAssignees } from '@/lib/task-assignees'
 import { resolveCanRateWorkQuality } from '@/lib/task-rating'
+import { resolveReviewerGate } from '@/lib/board-reviewer'
 import { setTaskFieldValues } from '@/lib/task-fields'
 import { notifyTaskAssigned, notifyTaskUpdated, notifyTaskCompleted, notifyTaskSubmittedForReview, notifySubtaskAssigned } from '@/lib/notifications'
 
@@ -24,6 +25,8 @@ const updateTaskSchema = z.object({
   teamMemberIds: z.array(z.string()).optional(),
   collaboratorIds: z.array(z.string()).optional(),
   assignedById: z.string().optional(),
+  // Board Reviewers: assign/clear the task's reviewer (must be in the board pool).
+  reviewerId: z.string().nullish(),
   // Google Calendar-compatible fields
   location: z.string().optional(),
   meetingLink: z.string().url().optional().or(z.literal('')),
@@ -106,6 +109,7 @@ export async function GET(
             }
           }
         },
+        reviewer: { select: { id: true, name: true, email: true, image: true } },
         fieldValues: {
           include: { field: { select: { id: true, name: true, type: true, options: true, position: true } } },
         },
@@ -126,6 +130,9 @@ export async function GET(
         subtasks: {
           include: {
             assignee: {
+              select: { id: true, name: true, email: true, image: true }
+            },
+            reviewer: {
               select: { id: true, name: true, email: true, image: true }
             }
           },
@@ -280,7 +287,7 @@ export async function PATCH(
         // Board owner gates who can move/finalize; teamId scopes board-rating.
         board: { select: { ownerId: true, teamId: true } },
         // Parent's leader/creator can finalize this subtask (review → done)
-        parent: { select: { assigneeId: true, creatorId: true } },
+        parent: { select: { assigneeId: true, creatorId: true, boardId: true } },
       }
     })
 
@@ -326,7 +333,7 @@ export async function PATCH(
       existingTask.assigneeId === session.user.id ||
       existingTask.assignees?.some(a => a.userId === session.user.id) ||
       false
-    const canComplete = canFinalizeTask({
+    let canComplete = canFinalizeTask({
       isAdmin,
       isBoardLeader,
       isOwner,
@@ -338,7 +345,7 @@ export async function PATCH(
     // Who may rate work quality: every LEADER in the task's board (not just the
     // board/task creator), plus the existing finishers. Broader than canComplete
     // — completion permission is unchanged. Board access is verified server-side.
-    const canRate = await resolveCanRateWorkQuality({
+    let canRate = await resolveCanRateWorkQuality({
       canFinalize: canComplete,
       isLeader,
       userId: session.user.id,
@@ -347,6 +354,56 @@ export async function PATCH(
       boardTeamId: existingTask.board?.teamId ?? null,
       taskTeamId: existingTask.teamId,
     })
+
+    // ── Board Reviewers enforcement ──
+    // The board that governs review (a subtask inherits its parent's board). If
+    // that board has a reviewer pool, only the task's assigned reviewer (or admin)
+    // may finalize/rate — so nobody approves their own work.
+    const reviewerBoardId = existingTask.boardId ?? existingTask.parent?.boardId ?? null
+    const hasReviewerPool = reviewerBoardId
+      ? (await prisma.boardReviewer.count({ where: { boardId: reviewerBoardId } })) > 0
+      : false
+    const assigneeIds = new Set<string>([
+      ...(existingTask.assigneeId ? [existingTask.assigneeId] : []),
+      ...(existingTask.assignees?.map(a => a.userId) ?? []),
+    ])
+
+    // Validate a reviewer assignment carried in this request. The submitter
+    // (assignee) or a board leader/admin may set it; only to a pool member, and
+    // never to the task's own assignee.
+    if (updateData.reviewerId !== undefined) {
+      const canAssignReviewer = isAssignee || isBoardLeader || isOwner || isAdmin
+      if (!canAssignReviewer) {
+        delete (updateData as any).reviewerId
+      } else if (updateData.reviewerId) {
+        if (!reviewerBoardId) {
+          return NextResponse.json({ error: 'This task is not on a board with reviewers.' }, { status: 400 })
+        }
+        if (assigneeIds.has(updateData.reviewerId)) {
+          return NextResponse.json({ error: "A task's assignee can't be its own reviewer." }, { status: 400 })
+        }
+        const inPool = await prisma.boardReviewer.findUnique({
+          where: { boardId_userId: { boardId: reviewerBoardId, userId: updateData.reviewerId } },
+          select: { id: true },
+        })
+        if (!inPool) {
+          return NextResponse.json({ error: "Reviewer must be in the board's reviewer pool." }, { status: 400 })
+        }
+      }
+    }
+
+    const effectiveReviewerId =
+      updateData.reviewerId !== undefined ? (updateData.reviewerId ?? null) : existingTask.reviewerId
+    const reviewerGate = resolveReviewerGate({
+      hasReviewerPool,
+      reviewerId: effectiveReviewerId,
+      viewerId: session.user.id,
+      isAdmin,
+      legacyCanFinalize: canComplete,
+      legacyCanRate: canRate,
+    })
+    canComplete = reviewerGate.canFinalize
+    canRate = reviewerGate.canRate
 
     // Leaders can extend due dates for tasks assigned to their team members (multi-leader support)
     let isLeaderSubordinateOverride = false
