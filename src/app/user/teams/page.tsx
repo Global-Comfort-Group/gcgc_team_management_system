@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
-import { Users, Plus, Loader2, CheckSquare } from 'lucide-react'
+import { Users, Plus, Loader2, CheckSquare, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -33,6 +33,7 @@ export default function TeamsPage() {
   const [color, setColor] = useState(COLOR_CHOICES[0])
   const [category, setCategory] = useState('')
   const [creating, setCreating] = useState(false)
+  const [query, setQuery] = useState('')
 
   const fetchTeams = useCallback(async () => {
     try {
@@ -84,6 +85,16 @@ export default function TeamsPage() {
   const myRole = (team: Team): string | null =>
     team.members.find(m => m.userId === session?.user?.id)?.role ?? null
 
+  // Filter team/board cards by team name or board name (case-insensitive).
+  const trimmedQuery = query.trim().toLowerCase()
+  const filteredTeams = trimmedQuery
+    ? teams.filter(
+        t =>
+          t.name.toLowerCase().includes(trimmedQuery) ||
+          (t.board?.name?.toLowerCase().includes(trimmedQuery) ?? false)
+      )
+    : teams
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
       {/* Header — refined hero (matches dashboard) */}
@@ -131,6 +142,18 @@ export default function TeamsPage() {
         </div>
       </div>
 
+      {!loading && teams.length > 0 && (
+        <div className="relative mb-4 sm:max-w-xs">
+          <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Search teams or boards…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+          />
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-20 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading teams…
@@ -146,9 +169,19 @@ export default function TeamsPage() {
             <Plus className="h-4 w-4 mr-2" /> Create your first team
           </Button>
         </div>
+      ) : filteredTeams.length === 0 ? (
+        <div className="text-center py-16 border border-dashed border-slate-300 rounded-2xl bg-slate-50/50">
+          <p className="text-sm text-slate-500">No teams match “{query}”.</p>
+          <button
+            onClick={() => setQuery('')}
+            className="mt-2 text-sm font-medium text-blue-600 hover:underline"
+          >
+            Clear search
+          </button>
+        </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {teams.map((team, i) => {
+          {filteredTeams.map((team, i) => {
             const role = myRole(team)
             const memberCount = team._count?.members ?? team.members.length
             const taskCount = team._count?.tasks ?? 0
