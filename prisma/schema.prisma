@@ -50,6 +50,7 @@ model User {
   taskAssignments        TaskAssignee[]      @relation("TaskAssignees")
   assignedTasks2         Task[]              @relation("TaskAssignedBy")
   assignedTasks          Task[]              @relation("TaskAssignee")
+  reviewingTasks         Task[]              @relation("TaskReviewer")
   createdTasks           Task[]              @relation("TaskCreator")
   seniorEvaluatedTasks   Task[]              @relation("TaskSeniorEvaluator")
   taskAttachments        TaskAttachment[]    @relation("TaskAttachmentUploader")
@@ -66,6 +67,7 @@ model User {
   boards                 KanbanBoard[]       @relation("BoardOwner")
   ownedTeams             Team[]              @relation("TeamOwner")
   boardMemberships       KanbanBoardMember[] @relation("BoardMember")
+  boardReviewerOf        BoardReviewer[]     @relation("BoardReviewerUser")
   leadingMembers         LeaderMembership[]  @relation("LeaderMemberships")
   memberOfLeaders        LeaderMembership[]  @relation("MemberMemberships")
   passwordResetTokens    PasswordResetToken[]
@@ -282,9 +284,10 @@ model KanbanBoard {
 
   owner    User                @relation("BoardOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   team     Team?               @relation("TeamBoard", fields: [teamId], references: [id], onDelete: Cascade)
-  tasks    Task[]
-  members  KanbanBoardMember[]
-  statuses BoardStatus[]
+  tasks     Task[]
+  members   KanbanBoardMember[]
+  reviewers BoardReviewer[]
+  statuses  BoardStatus[]
   fields   BoardField[]
   forms    IntakeForm[]
   pins     BoardPin[]
@@ -410,6 +413,23 @@ model KanbanBoardMember {
   @@map("kanban_board_members")
 }
 
+// Board Reviewers pool: leaders eligible to review tasks on a board. A task's
+// assigned reviewer must come from this pool. An empty pool = the board keeps
+// the legacy behavior (any board leader completes) — the feature is opt-in.
+model BoardReviewer {
+  id        String   @id @default(cuid())
+  boardId   String
+  userId    String
+  createdAt DateTime @default(now())
+
+  board KanbanBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  user  User        @relation("BoardReviewerUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, userId])
+  @@index([boardId])
+  @@map("board_reviewers")
+}
+
 model Task {
   id                    String             @id @default(cuid())
   title                 String
@@ -424,6 +444,9 @@ model Task {
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
   assignedById          String?
+  // Board Reviewers: the leader assigned to review this task (from its board's
+  // reviewer pool). Null = unassigned. Enforced only when the board has a pool.
+  reviewerId            String?
   progressPercentage    Int                @default(0)
   taskType              TaskType           @default(INDIVIDUAL)
   googleCalendarId      String?
@@ -487,6 +510,7 @@ model Task {
   assignees             TaskAssignee[]
   assignedBy            User?              @relation("TaskAssignedBy", fields: [assignedById], references: [id])
   assignee              User?              @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  reviewer              User?              @relation("TaskReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
   creator               User               @relation("TaskCreator", fields: [creatorId], references: [id])
   team                  Team?              @relation(fields: [teamId], references: [id], onDelete: Cascade)
   seniorEvaluator       User?              @relation("TaskSeniorEvaluator", fields: [seniorEvaluatorId], references: [id])
