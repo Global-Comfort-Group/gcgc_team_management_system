@@ -87,6 +87,7 @@ import { format, isAfter, subDays } from 'date-fns'
 import TaskForm from '@/components/tasks/TaskForm'
 import TaskViewModal from '@/components/tasks/TaskViewModal'
 import { ScheduleHealthBadge } from '@/components/tasks/ScheduleHealthBadge'
+import { BoardProgressSummary } from '@/components/tasks/BoardProgressSummary'
 import TimelineView from '@/components/tasks/TimelineView'
 import type { TimelineZoom } from '@/lib/timeline'
 import DuplicateTaskDialog from '@/components/tasks/DuplicateTaskDialog'
@@ -1721,11 +1722,14 @@ export default function TasksPage() {
       </div>
 
       {/* Overall board progress (project completion %) */}
-      {activeBoardId && (
-        <div className="flex items-center gap-3 pt-3">
-          <span className="text-xs font-medium text-slate-600 shrink-0">Overall progress</span>
-          <Progress value={boardProgressPct} className="h-2 flex-1 max-w-md" />
-          <span className="text-sm font-semibold text-slate-800 tabular-nums shrink-0">{boardProgressPct}%</span>
+      {activeBoardId && activeBoard && (
+        <div className="pt-3">
+          <BoardProgressSummary
+            percent={boardProgressPct}
+            boardName={activeBoard.name}
+            color={activeBoard.color || '#3B82F6'}
+            taskCount={activeBoard._count?.tasks ?? 0}
+          />
         </div>
       )}
 
