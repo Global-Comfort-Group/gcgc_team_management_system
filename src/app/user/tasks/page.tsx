@@ -27,6 +27,7 @@ import {
   Copy,
   UserPlus,
   Settings2,
+  Gauge,
   GitBranch,
   MessageSquare,
   Star,
@@ -87,7 +88,7 @@ import { format, isAfter, subDays } from 'date-fns'
 import TaskForm from '@/components/tasks/TaskForm'
 import TaskViewModal from '@/components/tasks/TaskViewModal'
 import { ScheduleHealthBadge } from '@/components/tasks/ScheduleHealthBadge'
-import { BoardProgressSummary } from '@/components/tasks/BoardProgressSummary'
+import ProjectInfoDialog from '@/components/tasks/ProjectInfoDialog'
 import TimelineView from '@/components/tasks/TimelineView'
 import type { TimelineZoom } from '@/lib/timeline'
 import DuplicateTaskDialog from '@/components/tasks/DuplicateTaskDialog'
@@ -476,6 +477,7 @@ export default function TasksPage() {
 
   const [exporting, setExporting] = useState(false)
   const [boardSettingsOpen, setBoardSettingsOpen] = useState(false)
+  const [projectInfoOpen, setProjectInfoOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [duplicatingTask, setDuplicatingTask] = useState<Task | null>(null)
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false)
@@ -1323,9 +1325,6 @@ export default function TasksPage() {
   }
 
   const activeBoard = activeBoardId ? boards.find(b => b.id === activeBoardId) : undefined
-  // Overall board completion — computed server-side (filter-independent) and
-  // returned on the board object.
-  const boardProgressPct = activeBoard?.progress ?? 0
   const filterUserOptions = activeBoard
     ? activeBoard.team?.members
       ? activeBoard.team.members.map(m => ({ id: m.user.id, name: m.user.name || m.user.email, email: m.user.email, image: m.user.image }))
@@ -1686,6 +1685,12 @@ export default function TasksPage() {
           onChange={(f, t) => { setDueDateFrom(f); setDueDateTo(t) }}
         />
 
+        {activeBoardId && (
+          <Button variant="outline" size="sm" className="h-8" onClick={() => setProjectInfoOpen(true)} title="Project info">
+            <Gauge className="h-4 w-4 mr-1.5" /> Project info
+          </Button>
+        )}
+
         {(selectedUser || searchTerm || dueDateFrom || dueDateTo) && (
           <Button
             variant="outline"
@@ -1720,18 +1725,6 @@ export default function TasksPage() {
           ))}
         </div>
       </div>
-
-      {/* Overall board progress (project completion %) */}
-      {activeBoardId && activeBoard && (
-        <div className="pt-3">
-          <BoardProgressSummary
-            percent={boardProgressPct}
-            boardName={activeBoard.name}
-            color={activeBoard.color || '#3B82F6'}
-            taskCount={activeBoard._count?.tasks ?? 0}
-          />
-        </div>
-      )}
 
       {/* Kanban Board */}
       {viewMode === 'board' && (
@@ -2213,6 +2206,17 @@ export default function TasksPage() {
           open={boardSettingsOpen}
           onOpenChange={setBoardSettingsOpen}
           onChanged={async () => { await fetchBoards(); await fetchTasks(false) }}
+        />
+      )}
+
+      {activeBoard && (
+        <ProjectInfoDialog
+          boardId={activeBoard.id}
+          boardName={activeBoard.name}
+          boardColor={activeBoard.color || '#3B82F6'}
+          open={projectInfoOpen}
+          onOpenChange={setProjectInfoOpen}
+          onSaved={async () => { await fetchBoards() }}
         />
       )}
 
