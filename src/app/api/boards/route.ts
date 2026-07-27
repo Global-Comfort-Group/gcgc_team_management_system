@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { seedDefaultBoardStatuses } from '@/lib/board-statuses'
-import { roundBoardProgress, BOARD_PROGRESS_EXCLUDED_STATUSES } from '@/lib/board-progress'
+import { roundBoardProgress, resolveBoardActual, BOARD_PROGRESS_EXCLUDED_STATUSES } from '@/lib/board-progress'
 import { notifyAddedToBoard } from '@/lib/notifications'
 import { z } from 'zod'
 
@@ -41,6 +41,7 @@ export async function GET() {
     include: {
       ...memberInclude,
       owner: { select: { id: true, name: true, email: true, image: true } },
+      measurements: { select: { weight: true, progress: true } },
       team: {
         include: {
           members: {
@@ -93,7 +94,11 @@ export async function GET() {
     canManage: isAdmin || b.ownerId === session.user.id || (!!b.teamId && leaderTeamIds.has(b.teamId)),
     isStarred: !!pinMap.get(b.id)?.starred,
     category: pinMap.get(b.id)?.category ?? null,
-    progress: progressMap.get(b.id) ?? 0,
+    progress: resolveBoardActual({
+      manualActualPercent: b.manualActualPercent,
+      measurements: b.measurements,
+      taskAveragePercent: progressMap.get(b.id) ?? 0,
+    }),
   }))
 
   return NextResponse.json({ boards: withPerms })

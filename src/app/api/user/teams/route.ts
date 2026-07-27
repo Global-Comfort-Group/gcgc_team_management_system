@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRequestSession } from '@/lib/api-auth'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { roundBoardProgress, BOARD_PROGRESS_EXCLUDED_STATUSES } from '@/lib/board-progress'
+import { roundBoardProgress, resolveBoardActual, BOARD_PROGRESS_EXCLUDED_STATUSES } from '@/lib/board-progress'
 
 const createTeamSchema = z.object({
   name: z.string().min(1).max(100),
@@ -17,7 +17,15 @@ const teamInclude = {
   members: {
     include: { user: { select: { id: true, name: true, email: true, image: true, role: true } } },
   },
-  board: { select: { id: true, name: true, color: true } },
+  board: {
+    select: {
+      id: true,
+      name: true,
+      color: true,
+      manualActualPercent: true,
+      measurements: { select: { weight: true, progress: true } },
+    },
+  },
   _count: { select: { members: true, tasks: true } },
 }
 
@@ -48,10 +56,16 @@ export async function GET(req: NextRequest) {
   const progressMap = new Map(
     progressRows.map((r) => [r.boardId as string, roundBoardProgress(r._avg.progressPercentage)])
   )
-  const withProgress = teams.map((t) => ({
-    ...t,
-    board: t.board ? { ...t.board, progress: progressMap.get(t.board.id) ?? 0 } : null,
-  }))
+  const withProgress = teams.map((t) => {
+    if (!t.board) return { ...t, board: null }
+    const { measurements, manualActualPercent, ...boardRest } = t.board
+    const progress = resolveBoardActual({
+      manualActualPercent,
+      measurements,
+      taskAveragePercent: progressMap.get(t.board.id) ?? 0,
+    })
+    return { ...t, board: { ...boardRest, progress } }
+  })
   return NextResponse.json({ teams: withProgress })
 }
 
