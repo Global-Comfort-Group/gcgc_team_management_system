@@ -281,6 +281,9 @@ model KanbanBoard {
   teamId      String?  @unique // non-null => this is a team board (one board per team)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  // Project Info: optional manual override of the actual project %. Null => the
+  // actual is computed (weighted measurements, else average finished-task %).
+  manualActualPercent Int?
 
   owner    User                @relation("BoardOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   team     Team?               @relation("TeamBoard", fields: [teamId], references: [id], onDelete: Cascade)
@@ -291,6 +294,8 @@ model KanbanBoard {
   fields   BoardField[]
   forms    IntakeForm[]
   pins     BoardPin[]
+  measurements   BoardMeasurement[]
+  quarterTargets BoardQuarterTarget[]
 
   @@map("kanban_boards")
 }
@@ -428,6 +433,42 @@ model BoardReviewer {
   @@unique([boardId, userId])
   @@index([boardId])
   @@map("board_reviewers")
+}
+
+// Project Info: a weighted project phase (e.g. "BRD/BRS" @ 10%). The board's
+// actual % (when not overridden) is the weight-weighted average of progress.
+model BoardMeasurement {
+  id        String   @id @default(cuid())
+  boardId   String
+  name      String
+  weight    Int      @default(0) // percent share of the whole project
+  progress  Int      @default(0) // 0..100 completion of this phase (manual)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  board KanbanBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@index([boardId])
+  @@map("board_measurements")
+}
+
+// Project Info: per-quarter target (and optional recorded actual) for a board.
+model BoardQuarterTarget {
+  id            String   @id @default(cuid())
+  boardId       String
+  year          Int
+  quarter       Int      // 1..4
+  targetPercent Int      @default(0)
+  actualPercent Int?     // null => show the live actual for the current quarter
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  board KanbanBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, year, quarter])
+  @@index([boardId])
+  @@map("board_quarter_targets")
 }
 
 model Task {
