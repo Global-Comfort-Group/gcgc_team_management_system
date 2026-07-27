@@ -251,6 +251,7 @@ interface KanbanBoard {
   canManage?: boolean
   isStarred?: boolean
   category?: string | null
+  progress?: number
 }
 
 // Kanban board pagination: fetch this many tasks per "page", with a Load more
@@ -1321,6 +1322,9 @@ export default function TasksPage() {
   }
 
   const activeBoard = activeBoardId ? boards.find(b => b.id === activeBoardId) : undefined
+  // Overall board completion — computed server-side (filter-independent) and
+  // returned on the board object.
+  const boardProgressPct = activeBoard?.progress ?? 0
   const filterUserOptions = activeBoard
     ? activeBoard.team?.members
       ? activeBoard.team.members.map(m => ({ id: m.user.id, name: m.user.name || m.user.email, email: m.user.email, image: m.user.image }))
@@ -1715,6 +1719,15 @@ export default function TasksPage() {
           ))}
         </div>
       </div>
+
+      {/* Overall board progress (project completion %) */}
+      {activeBoardId && (
+        <div className="flex items-center gap-3 pt-3">
+          <span className="text-xs font-medium text-slate-600 shrink-0">Overall progress</span>
+          <Progress value={boardProgressPct} className="h-2 flex-1 max-w-md" />
+          <span className="text-sm font-semibold text-slate-800 tabular-nums shrink-0">{boardProgressPct}%</span>
+        </div>
+      )}
 
       {/* Kanban Board */}
       {viewMode === 'board' && (

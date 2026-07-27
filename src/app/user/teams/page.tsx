@@ -246,6 +246,19 @@ export default function TeamsPage() {
                     </div>
                   </div>
 
+                  {/* Overall board completion */}
+                  {team.board && (
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-medium text-slate-500">Progress</span>
+                        <span className="text-[11px] font-semibold text-slate-700 tabular-nums">{team.board.progress ?? 0}%</span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${team.board.progress ?? 0}%`, backgroundColor: dotColor }} />
+                      </div>
+                    </div>
+                  )}
+
                   {/* Actions: "Open board" is the primary CTA (consistent blue —
                       readable contrast, unlike a per-team colored fill); team color
                       stays as the accent bar + tile. "Manage" is the quieter secondary. */}

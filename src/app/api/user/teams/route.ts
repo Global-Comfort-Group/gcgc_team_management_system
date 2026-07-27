@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRequestSession } from '@/lib/api-auth'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
+import { roundBoardProgress, BOARD_PROGRESS_EXCLUDED_STATUSES } from '@/lib/board-progress'
 
 const createTeamSchema = z.object({
   name: z.string().min(1).max(100),
@@ -30,7 +31,28 @@ export async function GET(req: NextRequest) {
     include: teamInclude,
     orderBy: { createdAt: 'desc' },
   })
-  return NextResponse.json({ teams })
+
+  // Overall completion % for each team's board (filter-independent).
+  const boardIds = teams.map((t) => t.board?.id).filter((id): id is string => !!id)
+  const progressRows = boardIds.length
+    ? await prisma.task.groupBy({
+        by: ['boardId'],
+        where: {
+          boardId: { in: boardIds },
+          parentId: null,
+          status: { notIn: [...BOARD_PROGRESS_EXCLUDED_STATUSES] },
+        },
+        _avg: { progressPercentage: true },
+      })
+    : []
+  const progressMap = new Map(
+    progressRows.map((r) => [r.boardId as string, roundBoardProgress(r._avg.progressPercentage)])
+  )
+  const withProgress = teams.map((t) => ({
+    ...t,
+    board: t.board ? { ...t.board, progress: progressMap.get(t.board.id) ?? 0 } : null,
+  }))
+  return NextResponse.json({ teams: withProgress })
 }
 
 // POST /api/user/teams — any authenticated user can create a team; they become its first LEADER.

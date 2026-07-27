@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { seedDefaultBoardStatuses } from '@/lib/board-statuses'
+import { roundBoardProgress, BOARD_PROGRESS_EXCLUDED_STATUSES } from '@/lib/board-progress'
 import { notifyAddedToBoard } from '@/lib/notifications'
 import { z } from 'zod'
 
@@ -53,6 +54,24 @@ export async function GET() {
     orderBy: { createdAt: 'asc' },
   })
 
+  // Overall completion % per board: average progress of top-level, non-parked
+  // tasks (computed here so it's filter-independent).
+  const boardIds = boards.map((b) => b.id)
+  const progressRows = boardIds.length
+    ? await prisma.task.groupBy({
+        by: ['boardId'],
+        where: {
+          boardId: { in: boardIds },
+          parentId: null,
+          status: { notIn: [...BOARD_PROGRESS_EXCLUDED_STATUSES] },
+        },
+        _avg: { progressPercentage: true },
+      })
+    : []
+  const progressMap = new Map(
+    progressRows.map((r) => [r.boardId as string, roundBoardProgress(r._avg.progressPercentage)])
+  )
+
   // Attach canManage so the client shows the Board Settings gear only to those
   // who can edit: admins, the board owner, or a team LEADER of the board's team.
   const leaderTeams = await prisma.teamMember.findMany({
@@ -74,6 +93,7 @@ export async function GET() {
     canManage: isAdmin || b.ownerId === session.user.id || (!!b.teamId && leaderTeamIds.has(b.teamId)),
     isStarred: !!pinMap.get(b.id)?.starred,
     category: pinMap.get(b.id)?.category ?? null,
+    progress: progressMap.get(b.id) ?? 0,
   }))
 
   return NextResponse.json({ boards: withPerms })
