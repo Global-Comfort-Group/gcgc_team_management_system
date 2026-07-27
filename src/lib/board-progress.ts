@@ -13,5 +13,38 @@ export const BOARD_PROGRESS_EXCLUDED_STATUSES = ['CANCELLED', 'BACKLOG'] as cons
 // qualifying tasks) to an integer board %.
 export function roundBoardProgress(avg: number | null | undefined): number {
   if (avg == null || Number.isNaN(avg)) return 0
-  return Math.max(0, Math.min(100, Math.round(avg)))
+  return clampPct(Math.round(avg))
+}
+
+const clampPct = (n: number): number => Math.max(0, Math.min(100, n))
+
+export interface Measurement {
+  weight: number
+  progress: number
+}
+
+// Project Info: the weight-weighted average of measurement progress. Normalizes
+// by the total weight (so it works even if weights don't sum to exactly 100).
+// Returns null when there are no measurements with positive weight.
+export function weightedMeasurementProgress(measurements: Measurement[]): number | null {
+  const totalWeight = measurements.reduce((acc, m) => acc + Math.max(0, m.weight || 0), 0)
+  if (totalWeight <= 0) return null
+  const sum = measurements.reduce(
+    (acc, m) => acc + Math.max(0, m.weight || 0) * clampPct(m.progress || 0),
+    0
+  )
+  return Math.round(sum / totalWeight)
+}
+
+// The board's actual project %: a manual override wins; else the weighted
+// measurements (if any); else the average finished-task % (task-based default).
+export function resolveBoardActual(opts: {
+  manualActualPercent?: number | null
+  measurements: Measurement[]
+  taskAveragePercent: number
+}): number {
+  if (opts.manualActualPercent != null) return clampPct(Math.round(opts.manualActualPercent))
+  const weighted = weightedMeasurementProgress(opts.measurements)
+  if (weighted != null) return weighted
+  return clampPct(Math.round(opts.taskAveragePercent))
 }
