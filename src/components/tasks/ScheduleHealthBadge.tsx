@@ -6,18 +6,26 @@ import {
   type ScheduleHealth,
 } from '@/lib/schedule-health'
 
-// Presentation for each schedule-health state. Delayed reuses the destructive
-// token (same red as the old "Overdue" badge it replaces); On Track / Ahead use
-// explicit tints since the base Badge has no blue/green variant.
+// Presentation for each schedule-health state. Overdue takes the destructive
+// token (red) because it is a live problem — the task is late and still not
+// finished. Delayed is amber: the work landed, just after its due date, so it
+// reads as a record rather than an alarm. On Track / Ahead use explicit tints
+// since the base Badge has no blue/green variant.
 const PRESENTATION: Record<
   ScheduleHealth,
   { full: string; compact: string; className: string }
 > = {
+  OVERDUE: {
+    full: 'Overdue',
+    compact: 'Overdue',
+    className:
+      'border-transparent bg-destructive text-destructive-foreground',
+  },
   DELAYED: {
     full: 'Delayed',
     compact: 'Delayed',
     className:
-      'border-transparent bg-destructive text-destructive-foreground',
+      'border-transparent bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
   },
   ON_TRACK: {
     full: 'On Track',

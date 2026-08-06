@@ -1,20 +1,27 @@
 import { type OverdueCheckable } from './overdue'
 
-// Three-state schedule-health tag, derived (no stored column). **Week-granular:
-// weeks run Monday–Sunday.** The comparison unit is the deadline's calendar week,
-// not its exact day — a task stays fine for the whole of its deadline week and is
-// only late once that week has fully passed.
+// Four-state schedule-health tag, derived (no stored column). **Day-granular:
+// the comparison unit is the exact due date.** A task is late the day after its
+// due date — there is no week-long grace period. Anything happening ON the due
+// date is on time, matching isTaskOverdue (overdue.ts) and the rest of the app.
 //
-//   DELAYED  — behind: active & the deadline week has passed, or done & finished
-//              in a later week than the deadline.
-//   ON_TRACK — active and the deadline is this week or a future week.
-//   AHEAD    — done (submitted/evaluated) within the deadline week or earlier.
+// The four states split cleanly along active vs. done:
 //
-// This is intentionally NOT the same as isTaskOverdue (overdue.ts), which stays
-// day-granular and drives overdue counts / notifications / the cron. A task past
-// its exact due date but still inside its deadline week is isTaskOverdue===true
-// yet schedule-health ON_TRACK — the two answer different questions.
-export type ScheduleHealth = 'DELAYED' | 'ON_TRACK' | 'AHEAD'
+//   ACTIVE (TODO / IN_PROGRESS) — is it late right now?
+//     ON_TRACK — the due date is today or still ahead.
+//     OVERDUE  — past the due date and still not finished. Needs action.
+//
+//   DONE (IN_REVIEW / COMPLETED) — was it delivered late?
+//     AHEAD    — finished on or before the due date.
+//     DELAYED  — finished after the due date.
+//
+// So OVERDUE is a live problem and DELAYED is a historical record; the two never
+// apply to the same task at the same time.
+//
+// This deliberately mirrors isTaskOverdue's day-granular threshold, but the two
+// stay separate functions: isTaskOverdue drives overdue counts / notifications /
+// the cron and has its own status-exclusion rules (see overdue.ts).
+export type ScheduleHealth = 'DELAYED' | 'OVERDUE' | 'ON_TRACK' | 'AHEAD'
 
 export interface ScheduleCheckable extends OverdueCheckable {
   // Leader approval time. Used only as a finish-time fallback for done tasks
@@ -24,16 +31,13 @@ export interface ScheduleCheckable extends OverdueCheckable {
 
 // Statuses that carry no schedule-health tag at all: parked or called off.
 const NO_TAG_STATUSES = new Set<string>(['CANCELLED', 'BACKLOG'])
-// Statuses that count as "done" — judged by finish week vs the deadline week.
+// Statuses that count as "done" — judged by finish date vs the due date.
 const DONE_STATUSES = new Set<string>(['IN_REVIEW', 'COMPLETED'])
 
-// Monday 00:00 of the Mon–Sun week containing d.
-function startOfWeek(d: Date): Date {
+// Midnight at the start of d's calendar day.
+function startOfDay(d: Date): Date {
   const s = new Date(d)
   s.setHours(0, 0, 0, 0)
-  const day = s.getDay() // 0=Sun..6=Sat
-  const diffToMonday = day === 0 ? -6 : 1 - day
-  s.setDate(s.getDate() + diffToMonday)
   return s
 }
 
@@ -44,7 +48,7 @@ export function getScheduleHealth(
   if (!task.dueDate) return null
   if (task.status && NO_TAG_STATUSES.has(task.status)) return null
 
-  const dueWeek = startOfWeek(new Date(task.dueDate))
+  const dueDay = startOfDay(new Date(task.dueDate))
 
   if (task.status && DONE_STATUSES.has(task.status)) {
     // Finish reference: when the member submitted, else leader approval time.
@@ -53,18 +57,16 @@ export function getScheduleHealth(
     if (finishRaw) {
       finish = new Date(finishRaw)
     } else if (task.status === 'IN_REVIEW') {
-      // Legacy IN_REVIEW with no stamp: compare against today's week.
+      // Legacy IN_REVIEW with no stamp: compare against today.
       finish = now
     } else {
       // Completed with no timestamps — can't tell when it finished.
       return null
     }
-    // Finished within the deadline week (or an earlier week) is AHEAD; a later
-    // week is DELAYED.
-    return startOfWeek(finish) > dueWeek ? 'DELAYED' : 'AHEAD'
+    // Finished on or before the due date is AHEAD; a later day is DELAYED.
+    return startOfDay(finish) > dueDay ? 'DELAYED' : 'AHEAD'
   }
 
-  // Active (TODO / IN_PROGRESS): on track through the whole deadline week;
-  // delayed once that week has fully passed.
-  return startOfWeek(now) > dueWeek ? 'DELAYED' : 'ON_TRACK'
+  // Active (TODO / IN_PROGRESS): late the day after the due date.
+  return startOfDay(now) > dueDay ? 'OVERDUE' : 'ON_TRACK'
 }

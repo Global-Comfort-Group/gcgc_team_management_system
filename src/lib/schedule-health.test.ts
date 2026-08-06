@@ -1,15 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { getScheduleHealth } from './schedule-health'
 
-// Week-granular schedule health. Weeks run Monday–Sunday.
-//   Week A = Jun 29 (Mon) – Jul 5 (Sun)
-//   Week B = Jul 6  (Mon) – Jul 12 (Sun)   <- "now" lives here
-//   Week C = Jul 13 (Mon) – Jul 19 (Sun)
-const NOW = new Date(2026, 6, 8, 10, 0, 0) // Wed Jul 8, week B
+// Day-granular schedule health: the due date itself is on time, the next day is
+// late. Active tasks are ON_TRACK / OVERDUE; done tasks are AHEAD / DELAYED.
+const NOW = new Date(2026, 6, 8, 10, 0, 0) // Wed Jul 8 2026, 10:00
 const jul = (d: number, h = 0) => new Date(2026, 6, d, h, 0, 0)
 const jun = (d: number, h = 0) => new Date(2026, 5, d, h, 0, 0)
 
-describe('getScheduleHealth (weekly, Mon–Sun)', () => {
+describe('getScheduleHealth (day-granular)', () => {
   it('returns null without a due date', () => {
     expect(getScheduleHealth({ status: 'IN_PROGRESS', dueDate: null }, NOW)).toBeNull()
   })
@@ -20,61 +18,87 @@ describe('getScheduleHealth (weekly, Mon–Sun)', () => {
     }
   })
 
-  it('active task whose deadline week has fully passed is DELAYED', () => {
-    expect(getScheduleHealth({ status: 'IN_PROGRESS', dueDate: jul(2) }, NOW)).toBe('DELAYED')
-    expect(getScheduleHealth({ status: 'TODO', dueDate: jun(30) }, NOW)).toBe('DELAYED')
+  // --- active tasks: ON_TRACK / OVERDUE ---------------------------------
+
+  it('active task past its due date is OVERDUE', () => {
+    expect(getScheduleHealth({ status: 'IN_PROGRESS', dueDate: jul(7) }, NOW)).toBe('OVERDUE')
+    expect(getScheduleHealth({ status: 'TODO', dueDate: jun(30) }, NOW)).toBe('OVERDUE')
   })
 
-  it('active task due earlier THIS week (past the exact date) is still ON_TRACK', () => {
-    // due Mon Jul 6, now Wed Jul 8 — same week B
-    expect(getScheduleHealth({ status: 'IN_PROGRESS', dueDate: jul(6) }, NOW)).toBe('ON_TRACK')
+  it('active task due earlier this same week is OVERDUE, not ON_TRACK', () => {
+    // due Mon Jul 6, now Wed Jul 8 — same Mon–Sun week, but the date has passed.
+    // The old week-granular rule called this ON_TRACK; it is late.
+    expect(getScheduleHealth({ status: 'IN_PROGRESS', dueDate: jul(6) }, NOW)).toBe('OVERDUE')
   })
 
-  it('active task due later this week or a future week is ON_TRACK', () => {
-    expect(getScheduleHealth({ status: 'TODO', dueDate: jul(12) }, NOW)).toBe('ON_TRACK') // Sun, week B
-    expect(getScheduleHealth({ status: 'TODO', dueDate: jul(15) }, NOW)).toBe('ON_TRACK') // week C
+  it('active task due TODAY is ON_TRACK — the due date itself is on time', () => {
+    expect(getScheduleHealth({ status: 'IN_PROGRESS', dueDate: jul(8) }, NOW)).toBe('ON_TRACK')
   })
 
-  it('"On Track until the week ends": same task flips to DELAYED only next week', () => {
-    const task = { status: 'IN_PROGRESS', dueDate: jul(2) } // week A (Thu)
-    expect(getScheduleHealth(task, jul(3, 10))).toBe('ON_TRACK') // Fri Jul 3, still week A
-    expect(getScheduleHealth(task, jul(5, 23))).toBe('ON_TRACK') // Sun Jul 5, last day of week A
-    expect(getScheduleHealth(task, jul(6, 1))).toBe('DELAYED') // Mon Jul 6, week A has passed
+  it('active task due in the future is ON_TRACK', () => {
+    expect(getScheduleHealth({ status: 'TODO', dueDate: jul(9) }, NOW)).toBe('ON_TRACK')
+    expect(getScheduleHealth({ status: 'TODO', dueDate: jul(31) }, NOW)).toBe('ON_TRACK')
   })
 
-  it('done before the deadline week is AHEAD', () => {
-    // due Jul 15 (week C), submitted Jul 6 (week B)
+  it('active task flips ON_TRACK -> OVERDUE the day after the due date', () => {
+    const task = { status: 'IN_PROGRESS', dueDate: jul(2) } // Thu Jul 2
+    expect(getScheduleHealth(task, jul(1, 10))).toBe('ON_TRACK') // day before
+    expect(getScheduleHealth(task, jul(2, 0))).toBe('ON_TRACK') // due date, midnight
+    expect(getScheduleHealth(task, jul(2, 23))).toBe('ON_TRACK') // due date, last hour
+    expect(getScheduleHealth(task, jul(3, 0))).toBe('OVERDUE') // next day, midnight
+    expect(getScheduleHealth(task, jul(6, 1))).toBe('OVERDUE') // stays overdue
+  })
+
+  // --- done tasks: AHEAD / DELAYED --------------------------------------
+
+  it('done before the due date is AHEAD', () => {
     expect(
       getScheduleHealth({ status: 'COMPLETED', dueDate: jul(15), memberSubmittedAt: jul(6) }, NOW)
     ).toBe('AHEAD')
   })
 
-  it('done within the deadline week is AHEAD, even if after the exact due date', () => {
-    // due Mon Jul 6, submitted Wed Jul 8 — same week B
+  it('done ON the due date is AHEAD', () => {
     expect(
-      getScheduleHealth({ status: 'COMPLETED', dueDate: jul(6), memberSubmittedAt: jul(8) }, NOW)
+      getScheduleHealth(
+        { status: 'COMPLETED', dueDate: jul(6), memberSubmittedAt: jul(6, 23) },
+        NOW
+      )
     ).toBe('AHEAD')
   })
 
-  it('done in a later week than the deadline is DELAYED', () => {
-    // due Jul 2 (week A), submitted Jul 8 (week B)
+  it('done after the due date is DELAYED, even within the same week', () => {
+    // due Mon Jul 6, submitted Wed Jul 8 — same Mon–Sun week. The old rule
+    // called this AHEAD; it was delivered two days late.
+    for (const status of ['IN_REVIEW', 'COMPLETED']) {
+      expect(
+        getScheduleHealth({ status, dueDate: jul(6), memberSubmittedAt: jul(8) }, NOW)
+      ).toBe('DELAYED')
+      expect(
+        getScheduleHealth({ status, dueDate: jul(6), leaderEvaluatedAt: jul(8) }, NOW)
+      ).toBe('DELAYED')
+    }
+  })
+
+  it('done well after the due date is DELAYED', () => {
     expect(
       getScheduleHealth({ status: 'COMPLETED', dueDate: jul(2), memberSubmittedAt: jul(8) }, NOW)
     ).toBe('DELAYED')
   })
 
-  it('IN_REVIEW judged by submission week vs deadline week', () => {
+  it('IN_REVIEW is judged by submission date, not by today', () => {
+    // Submitted on time, still waiting on approval — not the assignee's fault.
     expect(
-      getScheduleHealth({ status: 'IN_REVIEW', dueDate: jul(6), memberSubmittedAt: jul(12) }, NOW)
-    ).toBe('AHEAD') // both week B
+      getScheduleHealth({ status: 'IN_REVIEW', dueDate: jul(6), memberSubmittedAt: jul(5) }, NOW)
+    ).toBe('AHEAD')
+    // Submitted late — keeps the late mark while it waits.
     expect(
       getScheduleHealth({ status: 'IN_REVIEW', dueDate: jul(2), memberSubmittedAt: jul(6) }, NOW)
-    ).toBe('DELAYED') // week A due, week B submit
+    ).toBe('DELAYED')
   })
 
   it('IN_REVIEW without a submission stamp falls back to now', () => {
-    expect(getScheduleHealth({ status: 'IN_REVIEW', dueDate: jul(2) }, NOW)).toBe('DELAYED') // now week B > week A
-    expect(getScheduleHealth({ status: 'IN_REVIEW', dueDate: jul(8) }, NOW)).toBe('AHEAD') // now week B == due week B
+    expect(getScheduleHealth({ status: 'IN_REVIEW', dueDate: jul(2) }, NOW)).toBe('DELAYED')
+    expect(getScheduleHealth({ status: 'IN_REVIEW', dueDate: jul(8) }, NOW)).toBe('AHEAD')
   })
 
   it('COMPLETED with no timestamps returns null', () => {
@@ -84,10 +108,20 @@ describe('getScheduleHealth (weekly, Mon–Sun)', () => {
   it('done uses leaderEvaluatedAt when memberSubmittedAt is missing', () => {
     expect(
       getScheduleHealth({ status: 'COMPLETED', dueDate: jul(2), leaderEvaluatedAt: jul(8) }, NOW)
-    ).toBe('DELAYED') // week A due, week B eval
+    ).toBe('DELAYED')
     expect(
       getScheduleHealth({ status: 'COMPLETED', dueDate: jul(15), leaderEvaluatedAt: jul(8) }, NOW)
-    ).toBe('AHEAD') // week C due, week B eval
+    ).toBe('AHEAD')
+  })
+
+  it('OVERDUE and DELAYED never apply to the same task', () => {
+    // Same due date and same late finish: active reads OVERDUE, done reads
+    // DELAYED. Active tasks never report DELAYED and done tasks never OVERDUE.
+    const dueDate = jul(2)
+    expect(getScheduleHealth({ status: 'IN_PROGRESS', dueDate }, NOW)).toBe('OVERDUE')
+    expect(
+      getScheduleHealth({ status: 'COMPLETED', dueDate, memberSubmittedAt: jul(8) }, NOW)
+    ).toBe('DELAYED')
   })
 
   it('accepts ISO date strings', () => {
@@ -99,6 +133,20 @@ describe('getScheduleHealth (weekly, Mon–Sun)', () => {
           memberSubmittedAt: jul(8).toISOString(),
         },
         NOW
+      )
+    ).toBe('DELAYED')
+  })
+
+  it("reproduces the reported case: due Jul 28, still open Jul 31", () => {
+    const task = { status: 'IN_PROGRESS', dueDate: jul(28) }
+    expect(getScheduleHealth(task, jul(28, 12))).toBe('ON_TRACK')
+    expect(getScheduleHealth(task, jul(29, 9))).toBe('OVERDUE')
+    expect(getScheduleHealth(task, jul(31, 9))).toBe('OVERDUE')
+    // and the done variant that used to read "Ahead of Schedule"
+    expect(
+      getScheduleHealth(
+        { status: 'COMPLETED', dueDate: jul(28), memberSubmittedAt: jul(30) },
+        jul(31, 9)
       )
     ).toBe('DELAYED')
   })
