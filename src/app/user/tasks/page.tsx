@@ -1955,8 +1955,16 @@ export default function TasksPage() {
 
                                 {/* Meta footer: priority, due date, subtasks, comments, weight, SLA, meeting */}
                                 {(() => {
-                                  // Weekly schedule-health, so the red date text agrees with the badge.
-                                  const overdue = getScheduleHealth(task) === 'DELAYED'
+                                  // Tint the date to match the badge: red while
+                                  // the task is late and unfinished, amber once
+                                  // it has landed but did so after the due date.
+                                  const health = getScheduleHealth(task)
+                                  const dueDateClass =
+                                    health === 'OVERDUE'
+                                      ? 'text-red-600 font-semibold'
+                                      : health === 'DELAYED'
+                                        ? 'text-amber-700 font-semibold'
+                                        : 'text-gray-600'
                                   return (
                                     <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap text-[11px] text-gray-500 mb-2.5">
                                       <span className="inline-flex items-center gap-1">
@@ -1964,7 +1972,7 @@ export default function TasksPage() {
                                         <span className="font-medium text-gray-700 capitalize">{task.priority.toLowerCase()}</span>
                                       </span>
                                       {task.dueDate && (
-                                        <span className={`inline-flex items-center gap-1 ${overdue ? 'text-red-600 font-semibold' : 'text-gray-600'}`}>
+                                        <span className={`inline-flex items-center gap-1 ${dueDateClass}`}>
                                           <Clock className="h-3 w-3" />
                                           {format(new Date(task.dueDate), 'MMM dd')}
                                           <ScheduleHealthBadge task={task} compact />
