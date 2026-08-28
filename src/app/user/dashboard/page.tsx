@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, type ReactNode } from 'react'
+import { useTaskRefresh } from '@/hooks/useTaskRefresh'
 import { useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { CheckSquare, Clock, AlertCircle, ArrowRight, Star, Zap, Target, Activity, Award, Calendar as CalendarIcon, Plus } from 'lucide-react'
@@ -157,9 +158,16 @@ export default function UserDashboard() {
     return 'bg-gray-400' // offline
   }
 
+  // Share of this month's workload that is done: completed ÷ (completed + open).
+  // The old formula divided completed-this-month by currently-open tasks, which
+  // has no shared denominator and read over 100% whenever a member closed more
+  // work than they had left.
   const calculateTaskCompletionRate = () => {
-    if (dashboardData?.stats.myTasks === 0) return 0
-    return Math.round((dashboardData?.stats.myCompletedTasks || 0) / (dashboardData?.stats.myTasks || 1) * 100)
+    const completed = dashboardData?.stats.myCompletedTasks || 0
+    const open = dashboardData?.stats.myTasks || 0
+    const total = completed + open
+    if (total === 0) return 0
+    return Math.round((completed / total) * 100)
   }
 
   const getGreeting = () => {
@@ -169,11 +177,13 @@ export default function UserDashboard() {
     return 'Good evening'
   }
 
-  const refreshDashboard = () => {
+  // `silent` skips the loading skeleton: a push-triggered refresh should update
+  // the numbers in place, not blank the page out from under the reader.
+  const refreshDashboard = (silent = false) => {
     if (!session?.user) return
     const fetchDashboardData = async () => {
       try {
-        setLoading(true)
+        if (!silent) setLoading(true)
         const response = await fetch('/api/user/dashboard')
         if (!response.ok) {
           throw new Error('Failed to fetch dashboard data')
@@ -184,11 +194,16 @@ export default function UserDashboard() {
         console.error('Error fetching dashboard data:', err)
         setError('Failed to load dashboard data')
       } finally {
-        setLoading(false)
+        if (!silent) setLoading(false)
       }
     }
     fetchDashboardData()
   }
+
+  // Live updates: the API broadcasts a task-changed event whenever a task is
+  // created, reassigned or deleted, so a task handed to this user appears
+  // without them reloading. Polling is the fallback if the socket is down.
+  useTaskRefresh(() => refreshDashboard(true))
 
   // Auto-refresh when the tab regains focus, so the dashboard is current
   // without a manual Refresh button.

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRequestSession } from '@/lib/api-auth'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
+import { resolveLeaderRoster, annotateMemberSource } from '@/lib/leader-roster'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,12 +48,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ members: teammates, stats: { totalMembers: teammates.length, activeTasks: 0, completedTasks: 0, overdueTasks: 0 } })
     }
 
-    // LEADER: Get team members via LeaderMembership (supports multi-leader hierarchy)
-    const teamMembers = await prisma.user.findMany({
-      where: {
-        memberOfLeaders: { some: { leaderId: session.user.id } },
-        isActive: true
-      },
+    // LEADER: the roster is the union of reports-to and the teams this leader
+    // manages — see src/lib/leader-roster.ts for why the two are separate and
+    // why reading only the first made team-added people invisible here.
+    const teamIdFilter = new URL(req.url).searchParams.get('teamId')
+    const roster = await resolveLeaderRoster(session.user.id, teamIdFilter)
+
+    const loaded = roster.memberIds.length > 0 ? await prisma.user.findMany({
+      where: { id: { in: roster.memberIds }, isActive: true },
       select: {
         id: true,
         email: true,
@@ -70,18 +73,15 @@ export async function GET(req: NextRequest) {
         _count: {
           select: {
             assignedTasks: {
-              where: {
-                status: { notIn: ['COMPLETED', 'CANCELLED'] }
-              }
+              where: { status: { notIn: ['COMPLETED', 'CANCELLED'] } }
             }
           }
         }
       },
-      orderBy: [
-        { name: 'asc' },
-        { email: 'asc' }
-      ]
-    })
+      orderBy: [{ name: 'asc' }, { email: 'asc' }]
+    }) : []
+
+    const teamMembers = loaded.map(m => annotateMemberSource(m, roster))
 
     // Get team statistics
     const memberIds = teamMembers.map(member => member.id)
@@ -125,6 +125,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       members: teamMembers,
+      teams: roster.managedTeams,
       stats
     })
   } catch (error) {

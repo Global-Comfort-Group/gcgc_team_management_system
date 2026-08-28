@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRequestSession } from '@/lib/api-auth'
 import { prisma } from '@/lib/prisma'
 import { isTaskOverdue } from '@/lib/overdue'
+import { resolveLeaderRoster, annotateMemberSource } from '@/lib/leader-roster'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,10 +17,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Only leaders can access member suggestions' }, { status: 403 })
     }
 
-    // Get team members via LeaderMembership (multi-leader hierarchy support)
-    const teamMembers = await prisma.user.findMany({
+    // Same roster as /api/user/team-members — reports-to UNION the teams this
+    // leader manages. Both endpoints feed the one Member Management page, so a
+    // narrower roster here would leave team-sourced members with no health
+    // badges and a workload of zero.
+    const teamIdFilter = new URL(req.url).searchParams.get('teamId')
+    const roster = await resolveLeaderRoster(session.user.id, teamIdFilter)
+
+    const teamMembers = roster.memberIds.length > 0 ? await prisma.user.findMany({
       where: {
-        memberOfLeaders: { some: { leaderId: session.user.id } },
+        id: { in: roster.memberIds },
         isActive: true
       },
       select: {
@@ -65,10 +72,11 @@ export async function GET(req: NextRequest) {
         { name: 'asc' },
         { email: 'asc' }
       ]
-    })
+    }) : []
 
     // Calculate task counts and availability scores for each member
-    const membersWithStats = teamMembers.map(member => {
+    const membersWithStats = teamMembers.map(rawMember => {
+      const member = annotateMemberSource(rawMember, roster)
       const tasks = member.assignedTasks
       
       // Count tasks by status

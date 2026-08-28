@@ -83,6 +83,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { useToast } from '@/hooks/use-toast'
+import { useTaskRefresh } from '@/hooks/useTaskRefresh'
 import { cn } from '@/lib/utils'
 import { format, isAfter, subDays } from 'date-fns'
 import TaskForm from '@/components/tasks/TaskForm'
@@ -618,6 +619,11 @@ export default function TasksPage() {
     // `[session, ...]` deps re-fired this effect, flipping `loading` to true
     // and unmounting the TaskForm dialog (and its in-progress RHF state).
   }, [session?.user?.id, selectedTeam, selectedUser, activeBoardId, dueDateFrom, dueDateTo])
+
+  // Live updates from the server's task-changed broadcast, so a task assigned
+  // or transferred by someone else lands on the board without a reload. The
+  // focus/visibility listeners below stay as the belt-and-braces path.
+  useTaskRefresh(() => fetchTasks(false))
 
   // Refetch tasks when page becomes visible (e.g., navigating back from Calendar)
   useEffect(() => {

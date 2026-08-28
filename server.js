@@ -37,11 +37,13 @@ app.prepare().then(async () => {
     const pubClient = createClient({ url: redisUrl })
     const subClient = pubClient.duplicate()
     const notificationSubClient = pubClient.duplicate()
+    const taskEventSubClient = pubClient.duplicate()
 
     await Promise.all([
       pubClient.connect(),
       subClient.connect(),
-      notificationSubClient.connect()
+      notificationSubClient.connect(),
+      taskEventSubClient.connect()
     ])
 
     io.adapter(createAdapter(pubClient, subClient))
@@ -58,6 +60,21 @@ app.prepare().then(async () => {
       }
     })
     console.log('> Subscribed to Redis notifications channel')
+
+    // Task change fan-out. Lets every open board/dashboard refresh the moment a
+    // task is created, reassigned, moved or deleted, instead of waiting for the
+    // user to reload — the "1+ minute delay on assignment/transfer" report.
+    await taskEventSubClient.subscribe('task-events', (message) => {
+      try {
+        const { userIds, event } = JSON.parse(message)
+        for (const userId of userIds || []) {
+          io.to(`user-${userId}`).emit('task-changed', event)
+        }
+      } catch (err) {
+        console.error('Error processing task event from Redis:', err)
+      }
+    })
+    console.log('> Subscribed to Redis task-events channel')
   } catch (redisError) {
     console.warn('> Redis not available, Socket.IO running in single-instance mode')
     console.warn('> For real-time notifications in cluster mode, set REDIS_URL environment variable')
@@ -88,6 +105,19 @@ app.prepare().then(async () => {
 
       socket.leave(`user-${userId}`)
       console.log(`User ${userId} left calendar sync`)
+    })
+
+    // Generic per-user room. `join-notifications` and `join-calendar-sync` join
+    // the same room for historical reasons; this is the name to use for
+    // anything new that just needs the current user's events.
+    socket.on('join-user', (userId) => {
+      if (!userId) return
+      socket.join(`user-${userId}`)
+    })
+
+    socket.on('leave-user', (userId) => {
+      if (!userId) return
+      socket.leave(`user-${userId}`)
     })
 
     // Join user-specific room for notifications
