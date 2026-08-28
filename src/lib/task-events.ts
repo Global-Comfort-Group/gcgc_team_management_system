@@ -79,11 +79,19 @@ export async function resolveTaskAudience(
 /**
  * Publish a task change to the given users.
  *
- * Redis is the path that works under PM2 cluster mode; `global.io` is the
- * single-process fallback for deployments running without Redis (server.js logs
- * "Redis not available, Socket.IO running in single-instance mode"). Never
- * throws — a failed broadcast must not fail the write that triggered it, since
- * the client keeps a polling fallback.
+ * `global.io` is tried first. API routes run inside the custom server that owns
+ * the Socket.IO instance, so it is almost always present — and when the Redis
+ * *adapter* is connected, `io.to(room)` already fans out across every PM2
+ * worker, so this path is correct under cluster mode too, not just single
+ * process. It is also synchronous, which matters: routing through
+ * `getRedisClient()` first would put a connection attempt in front of every
+ * task write on a box with no Redis, where it retries on each call.
+ *
+ * The Redis channel remains as the fallback for any process that has no
+ * `global.io` of its own.
+ *
+ * Never throws — a failed broadcast must not fail the write that triggered it,
+ * since the client keeps a polling fallback.
  */
 export async function emitTaskChanged(
   userIds: string[],
@@ -93,22 +101,22 @@ export async function emitTaskChanged(
   const payload: TaskChangedEvent = { ...event, at: new Date().toISOString() }
 
   try {
-    const client = await getRedisClient()
-    if (client) {
-      await client.publish('task-events', JSON.stringify({ userIds, event: payload }))
-      return
-    }
-  } catch (error) {
-    console.error('[task-events] redis publish failed:', error)
-  }
-
-  try {
     const io = (global as unknown as { io?: { to: (room: string) => { emit: (ev: string, data: unknown) => void } } }).io
     if (io) {
       for (const userId of userIds) io.to(`user-${userId}`).emit('task-changed', payload)
+      return
     }
   } catch (error) {
     console.error('[task-events] direct emit failed:', error)
+  }
+
+  try {
+    const client = await getRedisClient()
+    if (client) {
+      await client.publish('task-events', JSON.stringify({ userIds, event: payload }))
+    }
+  } catch (error) {
+    console.error('[task-events] redis publish failed:', error)
   }
 }
 
