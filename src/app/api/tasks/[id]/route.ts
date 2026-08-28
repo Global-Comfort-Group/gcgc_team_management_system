@@ -11,6 +11,7 @@ import { resolveCanRateWorkQuality } from '@/lib/task-rating'
 import { resolveReviewerGate } from '@/lib/board-reviewer'
 import { setTaskFieldValues } from '@/lib/task-fields'
 import { notifyTaskAssigned, notifyTaskUpdated, notifyTaskCompleted, notifyTaskSubmittedForReview, notifySubtaskAssigned } from '@/lib/notifications'
+import { broadcastTaskChange, resolveTaskAudience, emitTaskChanged } from '@/lib/task-events'
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).max(100).optional(),
@@ -1176,6 +1177,25 @@ export async function PATCH(
     }
     // --- End recurring chain ---
 
+    // Fan the change out to every open board/dashboard. The pre-update
+    // assignee and team/collaborator ids are passed explicitly: on a transfer
+    // they are no longer attached to the task, so resolving the audience from
+    // the new state alone would leave the previous owner staring at a stale card.
+    await broadcastTaskChange(params.id, 'updated', {
+      boardId: updatedTask?.boardId,
+      extraUserIds: [
+        existingTask.assigneeId,
+        existingTask.creatorId,
+        existingTask.assignedById,
+        ...existingTask.teamMembers.map(m => m.userId),
+        ...existingTask.collaborators.map(c => c.userId),
+        ...existingTask.assignees.map(a => a.userId),
+      ],
+    })
+    if (updatedParentTask) {
+      await broadcastTaskChange(updatedParentTask.id, 'updated', { boardId: updatedParentTask.boardId })
+    }
+
     // Return both the updated task and parent task if applicable
     return NextResponse.json({
       ...updatedTask,
@@ -1318,6 +1338,11 @@ export async function DELETE(
       return NextResponse.json({ message: 'Recurring series deleted successfully' })
     }
 
+    // Resolve who to notify BEFORE the row goes away — afterwards there is
+    // nothing left to derive the audience from, and the people whose boards
+    // still show the card are exactly the ones who need to hear about it.
+    const deleteAudience = await resolveTaskAudience(params.id, [session.user.id])
+
     // Get task details before deletion to find associated Event records
     const taskToDelete = await prisma.task.findUnique({
       where: { id: params.id },
@@ -1372,6 +1397,12 @@ export async function DELETE(
       })
       console.log(`Emitted task-deleted event for user ${session.user.id}`)
     }
+
+    // Drop the card from every other board that still shows it.
+    await emitTaskChanged(deleteAudience, {
+      taskId: params.id,
+      reason: 'deleted',
+    })
 
     return NextResponse.json({ message: 'Task deleted successfully' })
   } catch (error) {

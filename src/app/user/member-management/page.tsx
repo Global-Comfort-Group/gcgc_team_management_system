@@ -72,6 +72,7 @@ import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import TaskForm from '@/components/tasks/TaskForm'
 import TaskViewModal from '@/components/tasks/TaskViewModal'
+import { useTaskRefresh } from '@/hooks/useTaskRefresh'
 
 interface TeamMember {
   id: string
@@ -81,6 +82,11 @@ interface TeamMember {
   email: string
   image?: string
   role: string
+  // Where this person came from: the reports-to hierarchy, a team the leader
+  // manages, or both. Surfaced as a badge so "why is this person here?" (and
+  // "why were they missing?") has a visible answer.
+  sources?: ('reports-to' | 'team')[]
+  teams?: { id: string; name: string }[]
   _count?: {
     assignedTasks: number
   }
@@ -188,6 +194,8 @@ export default function MemberManagementPage() {
   const [taskSearch, setTaskSearch] = useState('')
   const [taskSort, setTaskSort] = useState<TaskSort>('dueDate')
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null)
+  const [teamFilter, setTeamFilter] = useState<string>('all')
+  const [taskTotal, setTaskTotal] = useState(0)
 
   useEffect(() => {
     if (session?.user?.role !== 'LEADER') {
@@ -199,7 +207,8 @@ export default function MemberManagementPage() {
     if (!session?.user || session.user.role !== 'LEADER') return
     try {
       setSuggestionsLoading(true)
-      const response = await fetch('/api/user/member-suggestions')
+      const qs = teamFilter !== 'all' ? `?teamId=${encodeURIComponent(teamFilter)}` : ''
+      const response = await fetch('/api/user/member-suggestions' + qs)
       if (!response.ok) throw new Error('Failed to fetch member suggestions')
       const data = await response.json()
       setMemberSuggestions(data.members || [])
@@ -213,33 +222,34 @@ export default function MemberManagementPage() {
   const fetchData = async () => {
     if (!session?.user || session.user.role !== 'LEADER') return
     try {
-      const [membersResponse, teamsResponse] = await Promise.all([
-        fetch('/api/user/team-members'),
-        fetch('/api/teams'),
-      ])
-      if (!membersResponse.ok || !teamsResponse.ok) throw new Error('Failed to fetch data')
-      const [membersData, teamsData] = await Promise.all([
-        membersResponse.json(),
-        teamsResponse.json(),
-      ])
+      // The roster endpoint returns the leader's managed teams alongside the
+      // members, so the filter's options and its results always come from the
+      // same source of truth.
+      const qs = teamFilter !== 'all' ? `?teamId=${encodeURIComponent(teamFilter)}` : ''
+      const membersResponse = await fetch('/api/user/team-members' + qs)
+      if (!membersResponse.ok) throw new Error('Failed to fetch data')
+      const membersData = await membersResponse.json()
       const members = membersData.members || []
       setTeamMembers(members)
-      setTeams(teamsData.teams || [])
+      if (membersData.teams) setTeams(membersData.teams)
 
       // Fetch the whole team's task set once: tasks the leader is involved in
       // plus every managed member's tasks (team tasks, individual tasks, each
       // with its subtasks). All per-member / aggregate narrowing happens
       // client-side in `filteredTasks`, so a member's involvement via team
       // membership or subtasks is surfaced — not only tasks where they are the
-      // direct assignee. (Recent tasks are returned first; very large teams may
-      // exceed the 100-task page — see filteredTasks note.)
+      // direct assignee. The page previously requested 100, which silently
+      // truncated every aggregate for a team with more work than that; the
+      // server caps at 1000, and the real total is kept so the UI can say when
+      // it is still showing a partial set rather than quietly under-reporting.
       const taskParams = new URLSearchParams()
-      taskParams.append('limit', '100')
+      taskParams.append('limit', '500')
       taskParams.append('includeManagedMembers', 'true')
       const tasksResponse = await fetch('/api/tasks?' + taskParams.toString())
       if (!tasksResponse.ok) throw new Error('Failed to fetch tasks')
       const tasksData = await tasksResponse.json()
       setTasks(tasksData.tasks || [])
+      setTaskTotal(tasksData.pagination?.total ?? (tasksData.tasks || []).length)
     } catch (err) {
       console.error('Error fetching data:', err)
       setError('Failed to load data')
@@ -248,11 +258,26 @@ export default function MemberManagementPage() {
     }
   }
 
-  // Fetch once per session; member selection narrows client-side (see filteredTasks)
-  useEffect(() => { fetchData() }, [session])
+  // Member selection narrows client-side (see filteredTasks); the team filter
+  // is server-side, so changing it refetches.
+  useEffect(() => { fetchData() }, [session, teamFilter])
   useEffect(() => {
     if (session?.user?.role === 'LEADER') fetchMemberSuggestions()
-  }, [session])
+  }, [session, teamFilter])
+
+  // Live updates: a leader watching this page sees a reassignment land instead
+  // of waiting on a reload. Only for leaders — members are redirected away.
+  useTaskRefresh(
+    () => { fetchData(); fetchMemberSuggestions() },
+    { enabled: session?.user?.role === 'LEADER' }
+  )
+
+  // Selecting a team can drop the currently-open member from the roster.
+  useEffect(() => {
+    if (selectedMember && !loading && !teamMembers.some(m => m.id === selectedMember)) {
+      setSelectedMember('')
+    }
+  }, [teamMembers, selectedMember, loading])
 
   const handleDeleteTask = async () => {
     if (!deletingTask) return
@@ -597,6 +622,14 @@ export default function MemberManagementPage() {
               <div className="text-4xl font-bold text-slate-900">{teamStats.totalTasks}</div>
               <span className="text-sm text-slate-500 font-medium">assigned</span>
             </div>
+            {/* These cards aggregate the fetched page client-side. Past the page
+                size the numbers are a partial view — say so rather than report
+                a smaller figure as if it were the total. */}
+            {tasks.length < taskTotal && (
+              <p className="text-[11px] text-amber-600 font-medium">
+                Showing {tasks.length} of {taskTotal} — totals are partial
+              </p>
+            )}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-600 font-medium">In progress</span>
@@ -751,6 +784,16 @@ export default function MemberManagementPage() {
                             <span className={cn("text-sm font-semibold truncate", isSelected ? "text-blue-900" : "text-slate-800")}>
                               {member.name || 'Unnamed User'}
                             </span>
+                            {/* Team-only people used to be absent from this list
+                                entirely; the badge makes their origin explicit. */}
+                            {member.sources?.includes('team') && !member.sources?.includes('reports-to') && (
+                              <span
+                                className="text-[10px] font-semibold shrink-0 text-violet-700 bg-violet-50 border border-violet-200 rounded px-1.5 py-0.5"
+                                title={`From team: ${(member.teams || []).map(t => t.name).join(', ')}`}
+                              >
+                                Team
+                              </span>
+                            )}
                             <span className={cn(
                               "text-[11px] font-semibold shrink-0 tabular-nums",
                               workload >= 80 ? "text-red-500" : workload >= 50 ? "text-amber-500" : "text-emerald-600"
@@ -780,6 +823,20 @@ export default function MemberManagementPage() {
               </div>
             </PopoverContent>
           </Popover>
+
+          {teams.length > 0 && (
+            <Select value={teamFilter} onValueChange={setTeamFilter}>
+              <SelectTrigger className="w-full sm:w-[220px] h-11 rounded-xl border-slate-200 bg-white">
+                <SelectValue placeholder="All members" />
+              </SelectTrigger>
+              <SelectContent className="z-[200]">
+                <SelectItem value="all">All members</SelectItem>
+                {teams.map(t => (
+                  <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
 
           {selectedMember && (
             <Button

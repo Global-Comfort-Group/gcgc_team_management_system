@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRequestSession } from '@/lib/api-auth'
 import { prisma } from '@/lib/prisma'
 import { OVERDUE_EXCLUDED_STATUSES, isTaskOverdue } from '@/lib/overdue'
+import { myTasksWhere, teamTasksWhere, taskInvolvementOr } from '@/lib/task-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,6 +36,12 @@ export async function GET(req: NextRequest) {
     trendStart.setDate(trendStart.getDate() - 7 * 8)
     trendStart.setHours(0, 0, 0, 0)
 
+    // Every "my ..." count below is built from myTasksWhere so the summary
+    // cards match what the Tasks tab actually lists (same involvement clause,
+    // top-level only, recurring templates excluded).
+    const myScope = myTasksWhere(userId)
+    const isLeader = session.user.role === 'LEADER'
+
     // Get dashboard statistics
     const [
       myTasks,
@@ -46,20 +53,18 @@ export async function GET(req: NextRequest) {
       upcomingDeadlines,
       statusGroups,
       priorityGroups,
-      completedRecent
+      completedRecent,
+      teamMembersCount
     ] = await Promise.all([
-      // My assigned tasks
+      // My open tasks
       prisma.task.count({
-        where: {
-          assigneeId: userId,
-          status: { notIn: ['COMPLETED', 'BACKLOG'] }
-        }
+        where: { ...myScope, status: { notIn: ['COMPLETED', 'CANCELLED', 'BACKLOG'] } }
       }),
       
       // My completed tasks this month
       prisma.task.count({
         where: {
-          assigneeId: userId,
+          ...myScope,
           status: 'COMPLETED',
           updatedAt: {
             gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
@@ -67,11 +72,12 @@ export async function GET(req: NextRequest) {
         }
       }),
 
-      // Team tasks (if leader)
-      session.user.role === 'LEADER' ? prisma.task.count({
+      // Team tasks (if leader). Scoped via the board too — old tasks on a team
+      // board have teamId = null and would otherwise be invisible here.
+      isLeader && teamIds.length > 0 ? prisma.task.count({
         where: {
-          teamId: { in: teamIds },
-          status: { notIn: ['COMPLETED', 'BACKLOG'] }
+          ...teamTasksWhere(teamIds),
+          status: { notIn: ['COMPLETED', 'CANCELLED', 'BACKLOG'] }
         }
       }) : 0,
 
@@ -80,11 +86,16 @@ export async function GET(req: NextRequest) {
       // can't compare two columns, so those are fetched and filtered.
       (async () => {
         const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0)
-        const scope = {
-          OR: [
-            { assigneeId: userId },
-            ...(session.user.role === 'LEADER' ? [{ teamId: { in: teamIds } }] : [])
+        const scope: any = {
+          AND: [
+            {
+              OR: [
+                { AND: [{ OR: taskInvolvementOr(userId) }] },
+                ...(isLeader && teamIds.length > 0 ? [teamTasksWhere(teamIds)] : [])
+              ]
+            }
           ],
+          isRecurring: false,
           dueDate: { lt: startOfToday },
           parentId: null // Only count parent tasks, not subtasks
         }
@@ -103,10 +114,11 @@ export async function GET(req: NextRequest) {
       // Recent tasks (last 5)
       prisma.task.findMany({
         where: {
+          isRecurring: false,
+          parentId: null,
           OR: [
-            { assigneeId: userId },
-            { creatorId: userId },
-            ...(session.user.role === 'LEADER' ? [{ teamId: { in: teamIds } }] : [])
+            ...taskInvolvementOr(userId),
+            ...(isLeader && teamIds.length > 0 ? [teamTasksWhere(teamIds)] : [])
           ]
         },
         include: {
@@ -138,10 +150,13 @@ export async function GET(req: NextRequest) {
         take: 5
       }),
 
-      // Team members (if leader)
-      session.user.role === 'LEADER' ? prisma.user.findMany({
+      // Team members preview (if leader). Sourced from LeaderMembership — the
+      // same relation Member Management reads — so the two pages agree. The
+      // headline count is a separate count() below; this list is capped at 10
+      // and must never be used to derive it.
+      isLeader ? prisma.user.findMany({
         where: {
-          reportsToId: userId,
+          memberOfLeaders: { some: { leaderId: userId } },
           isActive: true
         },
         select: {
@@ -160,15 +175,17 @@ export async function GET(req: NextRequest) {
       // Upcoming deadlines (next 7 days)
       prisma.task.findMany({
         where: {
+          isRecurring: false,
+          parentId: null,
           OR: [
-            { assigneeId: userId },
-            ...(session.user.role === 'LEADER' ? [{ teamId: { in: teamIds } }] : [])
+            ...taskInvolvementOr(userId),
+            ...(isLeader && teamIds.length > 0 ? [teamTasksWhere(teamIds)] : [])
           ],
           dueDate: {
             gte: new Date(),
             lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
           },
-          status: { notIn: ['COMPLETED', 'BACKLOG'] }
+          status: { notIn: ['COMPLETED', 'CANCELLED', 'BACKLOG'] }
         },
         include: {
           assignee: {
@@ -192,22 +209,32 @@ export async function GET(req: NextRequest) {
       // My tasks grouped by status (for the status donut)
       prisma.task.groupBy({
         by: ['status'],
-        where: { assigneeId: userId, parentId: null },
+        where: myScope,
         _count: { _all: true },
       }),
 
       // My open tasks grouped by priority (for the priority bar)
       prisma.task.groupBy({
         by: ['priority'],
-        where: { assigneeId: userId, status: { not: 'COMPLETED' }, parentId: null },
+        where: { ...myScope, status: { notIn: ['COMPLETED', 'CANCELLED'] } },
         _count: { _all: true },
       }),
 
       // My completions over the last 8 weeks (bucketed in JS for the trend line)
       prisma.task.findMany({
-        where: { assigneeId: userId, status: 'COMPLETED', updatedAt: { gte: trendStart } },
+        where: { ...myScope, status: 'COMPLETED', updatedAt: { gte: trendStart } },
         select: { updatedAt: true },
       }),
+
+      // Headline team-size figure. Counted separately because the preview list
+      // above is capped at 10 — deriving the stat from its length reported "10"
+      // for every leader with a team of 10 or more.
+      isLeader ? prisma.user.count({
+        where: {
+          memberOfLeaders: { some: { leaderId: userId } },
+          isActive: true
+        }
+      }) : 0,
     ])
 
     // ── Shape chart data ──
@@ -237,7 +264,7 @@ export async function GET(req: NextRequest) {
         myCompletedTasks,
         teamTasks,
         overdueTasks,
-        teamMembersCount: teamMembers.length
+        teamMembersCount
       },
       recentTasks,
       teamMembers,

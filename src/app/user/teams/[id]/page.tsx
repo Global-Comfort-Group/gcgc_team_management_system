@@ -121,7 +121,10 @@ export default function TeamDetailPage() {
     }
   }
 
-  const openAddDialog = () => { setUserQuery(''); setShowAdd(true); if (allUsers.length === 0) loadUsers() }
+  // Reload every time, not just once: the cached list meant a user added to
+  // the system after the dialog's first open stayed invisible until a full
+  // page reload.
+  const openAddDialog = () => { setUserQuery(''); setShowAdd(true); loadUsers() }
 
   const addMember = async (userId: string) => {
     if (!team) return
@@ -336,9 +339,15 @@ export default function TeamDetailPage() {
               const matches = available.filter(u =>
                 !q || (u.name || '').toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
               )
+              // The list is capped for rendering cost, but a silent cap on an
+              // alphabetical roster is why "some members never appear": past
+              // the 50th name they were simply gone with nothing on screen to
+              // say so. Render the cap, and tell the user to search.
+              const VISIBLE_LIMIT = 50
+              const hiddenCount = Math.max(0, matches.length - VISIBLE_LIMIT)
               return (
                 <ul className="max-h-72 overflow-y-auto divide-y">
-                  {matches.slice(0, 50).map(u => (
+                  {matches.slice(0, VISIBLE_LIMIT).map(u => (
                     <li key={u.id} className="flex items-center gap-3 py-2">
                       <Avatar className="h-7 w-7">
                         <AvatarImage src={u.image || undefined} />
@@ -358,6 +367,11 @@ export default function TeamDetailPage() {
                   )}
                   {available.length > 0 && matches.length === 0 && (
                     <li className="py-6 text-center text-sm text-muted-foreground">No users match &quot;{userQuery}&quot;.</li>
+                  )}
+                  {hiddenCount > 0 && (
+                    <li className="py-3 text-center text-xs text-amber-600">
+                      +{hiddenCount} more not shown — type a name or email to find them.
+                    </li>
                   )}
                 </ul>
               )

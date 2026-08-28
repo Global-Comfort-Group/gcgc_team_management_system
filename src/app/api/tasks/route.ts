@@ -10,6 +10,8 @@ import { generateOccurrenceDates, buildRRuleString } from '@/lib/recurring'
 import { resolveTeamBoardLink } from '@/lib/team-board'
 import { setTaskAssignees } from '@/lib/task-assignees'
 import { setTaskFieldValues } from '@/lib/task-fields'
+import { taskInvolvementOr } from '@/lib/task-scope'
+import { broadcastTaskChange } from '@/lib/task-events'
 
 const cascadeStepSchema = z.object({
   title: z.string().min(1).max(200),
@@ -201,27 +203,22 @@ export async function GET(req: NextRequest) {
         // For the 'All Tasks' view (where boardId and teamId are absent), we show only tasks the user is personally related to.
         const showTeamTasks = (boardId && boardId !== 'none') || !!teamId
 
+        // Shared with the dashboard summary via taskInvolvementOr so the two
+        // can't drift: [0] is the direct-involvement clause, [1] is the
+        // "parent of a subtask assigned to me" branch (isLocked: false keeps
+        // locked cascade steps from revealing their parent prematurely).
+        const [involvementCore, subtaskBranch] = taskInvolvementOr(session.user.id)
+
         where.OR = [
           // Top-level tasks where user is involved
           {
             OR: [
               ...(showTeamTasks && teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []),
               ...managedMemberClause,
-              { assigneeId: session.user.id },
-              { creatorId: session.user.id },
-              { teamMembers: { some: { userId: session.user.id } } },
-              { collaborators: { some: { userId: session.user.id } } },
+              involvementCore,
             ]
           },
-          // Parent tasks where a non-locked subtask is assigned to this user
-          // (ensures the user can see and act on their subtask via the parent card)
-          // isLocked: false ensures locked cascade steps don't reveal the parent prematurely
-          {
-            AND: [
-              { parentId: null },
-              { subtasks: { some: { assigneeId: session.user.id, isLocked: false } } }
-            ]
-          }
+          subtaskBranch,
         ]
       }
     } else {
@@ -799,6 +796,10 @@ export async function POST(req: NextRequest) {
         }
       })
 
+      if (firstInstance) {
+        await broadcastTaskChange(firstInstance.id, 'created', { boardId: firstInstance.boardId })
+      }
+
       return NextResponse.json({ template, firstInstance, totalOccurrences }, { status: 201 })
     }
 
@@ -1098,6 +1099,9 @@ export async function POST(req: NextRequest) {
         }
       }
     }
+
+    // Push the new card to every open board/dashboard that should show it.
+    if (task) await broadcastTaskChange(task.id, 'created', { boardId: task.boardId })
 
     return NextResponse.json(task, { status: 201 })
   } catch (error) {
