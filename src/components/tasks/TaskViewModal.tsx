@@ -35,6 +35,7 @@ import {
   AtSign, Trash2, Pencil, X, Check, FileText, Download, File,
   Plus, ListTodo, ChevronRight, ChevronLeft, CheckCircle2, Circle, AlertCircle, RefreshCw, RotateCcw, Eye, GitBranch, Lock, Repeat, FolderInput
 } from 'lucide-react'
+import { isImageAttachment, isPreviewable } from '@/lib/attachment-preview'
 import { useSession } from 'next-auth/react'
 import { Progress } from '@/components/ui/progress'
 import { splitMentions } from '@/lib/mentions'
@@ -422,6 +423,10 @@ export default function TaskViewModal({
   // from its default endpoint (Content-Disposition: attachment + x-oss-force-download),
   // so window.open() saves the file instead of previewing it.
   const [previewImage, setPreviewImage] = useState<string | null>(null)
+  // Task attachment preview. Same reason as previewImage above: OSS force-downloads
+  // from its default endpoint, so the file has to be rendered in-app rather than
+  // opened by URL.
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string; type: string | null } | null>(null)
   const [recurringSettings, setRecurringSettings] = useState<{
     id: string
     recurringFrequency: string | null
@@ -3082,7 +3087,18 @@ export default function TaskViewModal({
                 {attachments.map(a => (
                   <div key={a.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded text-xs group">
                     <span className="shrink-0">{getFileIcon(a.fileType || undefined)}</span>
-                    <a href={a.fileUrl} target="_blank" rel="noreferrer" className="flex-1 truncate text-blue-600 hover:underline" title={a.fileName}>{a.fileName}</a>
+                    {isPreviewable(a.fileType, a.fileName) ? (
+                      <button
+                        type="button"
+                        onClick={() => setPreviewFile({ url: a.fileUrl, name: a.fileName, type: a.fileType ?? null })}
+                        className="flex-1 truncate text-left text-blue-600 hover:underline"
+                        title={`Preview ${a.fileName}`}
+                      >
+                        {a.fileName}
+                      </button>
+                    ) : (
+                      <a href={a.fileUrl} target="_blank" rel="noreferrer" className="flex-1 truncate text-blue-600 hover:underline" title={a.fileName}>{a.fileName}</a>
+                    )}
                     {a.fileSize != null && <span className="text-gray-400 shrink-0">{formatFileSize(a.fileSize ?? undefined)}</span>}
                     <a href={a.fileUrl} target="_blank" rel="noreferrer" download className="text-gray-400 hover:text-gray-700 shrink-0" title="Download"><Download className="h-3.5 w-3.5" /></a>
                     {canEditDependencies && (
@@ -3465,6 +3481,40 @@ export default function TaskViewModal({
                   className="max-h-[85vh] w-auto max-w-full mx-auto rounded-lg object-contain"
                 />
               )}
+            </DialogContent>
+          </Dialog>
+
+          {/* Attachment preview. Images render inline; PDFs go in an iframe.
+              Both avoid navigating to the OSS URL, which force-downloads. The
+              footer keeps a real download and a new-tab escape hatch for
+              anything the browser declines to render. */}
+          <Dialog open={!!previewFile} onOpenChange={(o) => { if (!o) setPreviewFile(null) }}>
+            <DialogContent className="max-w-5xl w-[95vw] p-0 sm:p-0 gap-0 overflow-hidden">
+              <DialogHeader className="px-4 pr-14 py-3 border-b">
+                <DialogTitle className="truncate text-sm font-medium">{previewFile?.name}</DialogTitle>
+              </DialogHeader>
+              <div className="bg-slate-50 flex items-center justify-center min-h-[50vh] max-h-[75vh] overflow-auto">
+                {previewFile && isImageAttachment(previewFile.type, previewFile.name) ? (
+                  <img src={previewFile.url} alt={previewFile.name} className="max-h-[75vh] w-auto max-w-full object-contain" />
+                ) : previewFile ? (
+                  <iframe src={previewFile.url} title={previewFile.name} className="w-full h-[75vh] border-0 bg-white" />
+                ) : null}
+              </div>
+              <div className="flex items-center justify-end gap-2 px-4 py-3 border-t">
+                <a
+                  href={previewFile?.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                >
+                  Open in new tab
+                </a>
+                <a href={previewFile?.url} download className="inline-flex">
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5">
+                    <Download className="h-3.5 w-3.5" /> Download
+                  </Button>
+                </a>
+              </div>
             </DialogContent>
           </Dialog>
 
