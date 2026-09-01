@@ -13,6 +13,7 @@ import { setTaskFieldValues } from '@/lib/task-fields'
 import { taskInvolvementOr } from '@/lib/task-scope'
 import { broadcastTaskChange } from '@/lib/task-events'
 import { allocateTicketNumber, applyManualTicketNumber, TicketNumberError } from '@/lib/ticket-allocate'
+import { resolveRoleAddressing } from '@/lib/board-roles'
 
 const cascadeStepSchema = z.object({
   title: z.string().min(1).max(200),
@@ -20,6 +21,9 @@ const cascadeStepSchema = z.object({
   assigneeId: z.string().optional().nullable(),
   dueDate: z.string().datetime().optional().nullable(),
 })
+
+/** A role that cannot receive the task — surfaced to the user, not a 500. */
+class RoleAddressingError extends Error {}
 
 const createTaskSchema = z.object({
   title: z.string().min(1).max(100),
@@ -55,6 +59,8 @@ const createTaskSchema = z.object({
   reminderDays: z.array(z.number().int().min(1)).optional().default([]),
   // Optional manual ticket number ("OPS-14"). Omitted => allocated automatically.
   ticketNumber: z.string().trim().max(24).optional().nullable(),
+  // Address the task to a board role instead of naming a person.
+  assignedRoleId: z.string().optional().nullable(),
   // Kanban board
   boardId: z.string().optional().nullable(),
   // Per-board custom status column to drop the new task into (#26)
@@ -616,6 +622,7 @@ export async function POST(req: NextRequest) {
       fieldValues,
       attachments,
       ticketNumber: manualTicketNumber,
+      assignedRoleId,
     } = createTaskSchema.parse(body)
 
     // Normalize attachment rows once; reused by whichever creation path runs.
@@ -826,6 +833,24 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Role addressing, same rules as PATCH: one holder is a shortcut so assign
+      // them; several leaves it claimable; none would be invisible work and is
+      // refused. Resolved here so a create cannot bypass the rule the edit path
+      // enforces.
+      let roleAssigneeId: string | null = null
+      if (assignedRoleId) {
+        const role = await tx.boardRole.findUnique({
+          where: { id: assignedRoleId },
+          select: { name: true, boardId: true, assignments: { select: { userId: true } } },
+        })
+        if (!role || (link.boardId && role.boardId !== link.boardId)) {
+          throw new RoleAddressingError('That role does not belong to this task\'s board.')
+        }
+        const outcome = resolveRoleAddressing({ name: role.name, holderIds: role.assignments.map(a => a.userId) })
+        if (outcome.kind === 'reject') throw new RoleAddressingError(outcome.reason)
+        if (outcome.kind === 'assign') roleAssigneeId = outcome.userId
+      }
+
       // Ticket number. Allocated inside this transaction so two concurrent
       // creates cannot be handed the same number; a manual value is validated
       // and pulls the owning counter up behind it.
@@ -837,6 +862,7 @@ export async function POST(req: NextRequest) {
       const newTask = await tx.task.create({
         data: {
           ticketNumber: ticket,
+          assignedRoleId: assignedRoleId || null,
           title,
           description,
           priority,
@@ -846,7 +872,12 @@ export async function POST(req: NextRequest) {
           isCascading: taskType === 'CASCADING',
           dueDate: finalDueDate,
           startDate: finalStartDate,
-          assigneeId: assigneeId || session.user.id, // Default to current user
+          // A role-addressed task with several holders stays unassigned so one
+          // of them can claim it. Defaulting to the creator here would make it
+          // owned the instant it was created and unclaimable.
+          assigneeId: assignedRoleId
+            ? roleAssigneeId
+            : (assigneeId || session.user.id),
           creatorId: session.user.id,
           teamId: link.teamId, // set when created on a team board
           assignedById: assignedById || session.user.id,
@@ -1124,6 +1155,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(task, { status: 201 })
   } catch (error) {
     console.error('Task creation error:', error)
+
+    if (error instanceof RoleAddressingError) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
 
     // A rejected ticket number is user input, not a server fault.
     if (error instanceof TicketNumberError) {

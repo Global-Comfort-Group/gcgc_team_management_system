@@ -429,6 +429,9 @@ export default function TaskViewModal({
   // opened by URL.
   const [previewFile, setPreviewFile] = useState<{ id: string; url: string; name: string; type: string | null } | null>(null)
   const [claiming, setClaiming] = useState(false)
+  const [editingTicket, setEditingTicket] = useState(false)
+  const [ticketDraft, setTicketDraft] = useState('')
+  const [savingTicket, setSavingTicket] = useState(false)
   const [recurringSettings, setRecurringSettings] = useState<{
     id: string
     recurringFrequency: string | null
@@ -2047,23 +2050,78 @@ export default function TaskViewModal({
           )}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <div className="flex-1 space-y-2 min-w-0">
-              {task.ticketNumber && (
-                <button
-                  type="button"
-                  className="group inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-xs font-medium text-slate-600 hover:bg-slate-100"
-                  title="Copy ticket number"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(task.ticketNumber!)
-                      toast({ title: 'Ticket number copied', description: task.ticketNumber! })
-                    } catch {
-                      toast({ title: 'Copy failed', description: task.ticketNumber! })
-                    }
-                  }}
-                >
-                  {task.ticketNumber}
-                  <Copy className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-60" />
-                </button>
+              {/* Click to copy; pencil to change it. The API has always supported
+                  editing — this is the control that was missing, so a number
+                  could be set at creation and never corrected afterwards. */}
+              {task.ticketNumber && !editingTicket && (
+                <span className="inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    className="group inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-xs font-medium text-slate-600 hover:bg-slate-100"
+                    title="Copy ticket number"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(task.ticketNumber!)
+                        toast({ title: 'Ticket number copied', description: task.ticketNumber! })
+                      } catch {
+                        toast({ title: 'Copy failed', description: task.ticketNumber! })
+                      }
+                    }}
+                  >
+                    {task.ticketNumber}
+                    <Copy className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-60" />
+                  </button>
+                  {canEditDependencies && (
+                    <button
+                      type="button"
+                      className="text-slate-300 hover:text-slate-600"
+                      title="Change ticket number"
+                      onClick={() => { setTicketDraft(task.ticketNumber || ''); setEditingTicket(true) }}
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
+              )}
+
+              {editingTicket && (
+                <span className="inline-flex items-center gap-1">
+                  <input
+                    autoFocus
+                    value={ticketDraft}
+                    onChange={(e) => setTicketDraft(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => { if (e.key === 'Escape') setEditingTicket(false) }}
+                    className="h-6 w-28 rounded-md border px-2 font-mono text-xs"
+                    placeholder="OPS-14"
+                    maxLength={24}
+                  />
+                  <Button
+                    size="sm" className="h-6 px-2 text-[11px]" disabled={savingTicket}
+                    onClick={async () => {
+                      setSavingTicket(true)
+                      try {
+                        const res = await fetch(`/api/tasks/${task.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          // Empty clears it; the server does not reallocate.
+                          body: JSON.stringify({ ticketNumber: ticketDraft.trim() || null }),
+                        })
+                        if (res.ok) {
+                          setEditingTicket(false)
+                          toast({ title: 'Ticket number updated' })
+                          onTaskUpdate?.()
+                        } else {
+                          const err = await res.json().catch(() => ({}))
+                          toast({ title: 'Could not update', description: err.error, variant: 'destructive' })
+                        }
+                      } finally { setSavingTicket(false) }
+                    }}
+                  >
+                    {savingTicket ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]"
+                    onClick={() => setEditingTicket(false)}>Cancel</Button>
+                </span>
               )}
               {/* Addressed to a role and not yet taken. The server checks the
                   caller actually holds the role, so showing this to everyone is

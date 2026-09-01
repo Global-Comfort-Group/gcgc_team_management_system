@@ -24,7 +24,10 @@ export const dynamic = 'force-dynamic'
  * guessable-adjacent (task id + attachment id), so it cannot be left open.
  */
 
-const PREVIEWABLE = [/^image\//, /^application\/pdf$/, /^text\/plain$/]
+// Exactly what isPreviewable() in src/lib/attachment-preview.ts offers. Keeping
+// a wider allowance here would mean proxying files no UI can ever show, which
+// is surface area with no benefit.
+const PREVIEWABLE = [/^image\//, /^application\/pdf$/]
 
 async function isInvolved(taskId: string, userId: string, isAdmin: boolean) {
   const task = await prisma.task.findUnique({
