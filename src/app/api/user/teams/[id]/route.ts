@@ -78,6 +78,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           { status: 400 }
         )
       }
+      // The global prefix is reserved: a board using it would collide with the
+      // board-less sequence, and both would try to issue the same number.
+      if (wanted) {
+        const seq = await prisma.ticketSequence.findUnique({ where: { id: 'global' }, select: { prefix: true } })
+        if (seq && wanted === seq.prefix) {
+          return NextResponse.json(
+            { error: `"${wanted}" is reserved for tasks that aren't on a board. Pick another prefix.` },
+            { status: 409 }
+          )
+        }
+      }
       if (wanted && team.board) {
         const clash = await prisma.kanbanBoard.findFirst({
           where: { ticketPrefix: wanted, id: { not: team.board.id } },

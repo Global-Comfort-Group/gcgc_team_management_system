@@ -35,12 +35,19 @@ async function main() {
   // A derived prefix MUST be written back to the board. Without that, runtime
   // allocation for these boards falls through to the global sequence and the
   // next task lands as TMS-1 beside siblings numbered OPS-n.
-  const taken = new Set<string>(
-    (await prisma.kanbanBoard.findMany({
+  const globalPrefix = (await prisma.ticketSequence.findUnique({ where: { id: 'global' } }))?.prefix ?? 'TMS'
+
+  // The global prefix is RESERVED. A board named "TMS Issues of CMI" derives
+  // "TMS", which would emit TMS-1 for its own task and TMS-1 again for the
+  // board-less sequence — a duplicate that fails the unique index partway
+  // through the run. Found by dry-running against a copy of production.
+  const taken = new Set<string>([
+    globalPrefix,
+    ...(await prisma.kanbanBoard.findMany({
       where: { NOT: { ticketPrefix: null } },
       select: { ticketPrefix: true },
-    })).map(b => b.ticketPrefix!)
-  )
+    })).map(b => b.ticketPrefix!),
+  ])
 
   const boardsNeedingPrefix = await prisma.kanbanBoard.findMany({
     where: { ticketPrefix: null, tasks: { some: scope } },
@@ -112,12 +119,12 @@ async function main() {
   for (const t of orphans) {
     g += 1
     if (!DRY_RUN) {
-      await prisma.task.update({ where: { id: t.id }, data: { ticketNumber: formatTicket('TMS', g) } })
+      await prisma.task.update({ where: { id: t.id }, data: { ticketNumber: formatTicket(globalPrefix, g) } })
     }
     numbered++
   }
   if (orphans.length) {
-    console.log(`  TMS: ${orphans.length} board-less/prefix-less tasks -> TMS-${seq0 + 1}..${g}`)
+    console.log(`  ${globalPrefix}: ${orphans.length} board-less/prefix-less tasks -> ${globalPrefix}-${seq0 + 1}..${g}`)
     if (!DRY_RUN) {
       await prisma.ticketSequence.update({ where: { id: 'global' }, data: { counter: g } })
     }
