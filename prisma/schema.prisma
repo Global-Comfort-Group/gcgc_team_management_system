@@ -531,6 +531,12 @@ model Task {
   // the default column for the task's category.
   customStatusId        String?
   customStatus          BoardStatus?       @relation("TaskCustomStatus", fields: [customStatusId], references: [id], onDelete: SetNull)
+  // Snapshot taken when a task is archived to the Backlog, so restoring puts it
+  // back where it was instead of dumping everything into To Do at 0%. Null for
+  // tasks archived before this existed — those still restore to TODO/0.
+  backlogPriorStatus         TaskStatus?
+  backlogPriorProgress       Int?
+  backlogPriorCustomStatusId String?
   // Per-board custom field values
   fieldValues           TaskFieldValue[]
   // Relations

@@ -12,11 +12,16 @@ import { resolveReviewerGate } from '@/lib/board-reviewer'
 import { setTaskFieldValues } from '@/lib/task-fields'
 import { notifyTaskAssigned, notifyTaskUpdated, notifyTaskCompleted, notifyTaskSubmittedForReview, notifySubtaskAssigned } from '@/lib/notifications'
 import { broadcastTaskChange, resolveTaskAudience, emitTaskChanged } from '@/lib/task-events'
+import { resolveBacklogEntry, resolveBacklogRestore, leavesBacklogExplicitly } from '@/lib/backlog-state'
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).max(100).optional(),
   description: z.string().optional(),
   status: z.enum(['BACKLOG', 'TODO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']).optional(),
+  // Explicit "restore from Backlog" action. An explicit flag rather than an
+  // inferred one: a task leaving BACKLOG for TODO could equally be a restore or
+  // someone dragging the card onto the To Do column, and those must differ.
+  restoreFromBacklog: z.boolean().optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
   dueDate: z.string().datetime().optional(),
   startDate: z.string().datetime().optional(),
@@ -600,6 +605,32 @@ export async function PATCH(
         select: { id: true },
       })
       if (def) (updateData as any).customStatusId = def.id
+    }
+
+    // ── Backlog archive / restore ──────────────────────────────────────────
+    // Runs after the derivations above so it overrides them: a restore must put
+    // back the remembered progress, not the 0% that "status: TODO" implies.
+    // Handled here rather than in the page so every caller gets it and the
+    // snapshot can't be bypassed.
+    const restoreRequested = (updateData as any).restoreFromBacklog === true
+    delete (updateData as any).restoreFromBacklog
+
+    if (restoreRequested && existingTask.status === 'BACKLOG') {
+      Object.assign(updateData as any, resolveBacklogRestore(existingTask as any))
+    } else if (updateData.status === 'BACKLOG') {
+      Object.assign(updateData as any, resolveBacklogEntry({
+        status: existingTask.status,
+        progressPercentage: existingTask.progressPercentage,
+        customStatusId: existingTask.customStatusId,
+      }))
+    } else if (leavesBacklogExplicitly(existingTask.status, updateData.status)) {
+      // Left the Backlog by an explicit status change instead of Restore. The
+      // caller's choice stands; the snapshot is stale, so drop it.
+      Object.assign(updateData as any, {
+        backlogPriorStatus: null,
+        backlogPriorProgress: null,
+        backlogPriorCustomStatusId: null,
+      })
     }
 
     // Resolve workQuality permission: every board leader (canRate) may rate,
