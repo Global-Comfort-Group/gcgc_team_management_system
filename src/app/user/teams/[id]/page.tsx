@@ -33,6 +33,7 @@ export default function TeamDetailPage() {
 
   const [showRename, setShowRename] = useState(false)
   const [renameValue, setRenameValue] = useState('')
+  const [prefixValue, setPrefixValue] = useState('')
   const [saving, setSaving] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -75,16 +76,17 @@ export default function TeamDetailPage() {
       const res = await fetch(`/api/user/teams/${team.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: renameValue.trim() }),
+        body: JSON.stringify({ name: renameValue.trim(), ticketPrefix: prefixValue.trim() }),
       })
       if (res.ok) {
         const data = await res.json()
         setTeam(data.team)
         setShowRename(false)
-        toast({ title: 'Team renamed' })
+        toast({ title: 'Team updated' })
       } else {
         const err = await res.json().catch(() => ({}))
-        toast({ title: 'Could not rename', description: err.error, variant: 'destructive' })
+        // A prefix clash comes back 409 with the owning board named.
+        toast({ title: 'Could not save', description: err.error, variant: 'destructive' })
       }
     } finally {
       setSaving(false)
@@ -237,7 +239,7 @@ export default function TeamDetailPage() {
           )}
           {canManage && (
             <>
-              <Button variant="ghost" size="sm" onClick={() => { setRenameValue(team.name); setShowRename(true) }}>
+              <Button variant="ghost" size="sm" onClick={() => { setRenameValue(team.name); setPrefixValue((team as any).board?.ticketPrefix ?? ''); setShowRename(true) }}>
                 <Pencil className="h-4 w-4" />
               </Button>
               <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" onClick={() => setShowDelete(true)}>
@@ -298,11 +300,30 @@ export default function TeamDetailPage() {
       <Dialog open={showRename} onOpenChange={setShowRename}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Rename team</DialogTitle>
+            <DialogTitle>Team settings</DialogTitle>
           </DialogHeader>
-          <div className="py-2 space-y-2">
-            <Label htmlFor="rename">Team name</Label>
-            <Input id="rename" value={renameValue} maxLength={100} onChange={e => setRenameValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveRename() }} />
+          <div className="py-2 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="rename">Team name</Label>
+              <Input id="rename" value={renameValue} maxLength={100} onChange={e => setRenameValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveRename() }} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="prefix">Ticket prefix</Label>
+              <Input
+                id="prefix"
+                value={prefixValue}
+                maxLength={10}
+                placeholder="e.g. OPS"
+                className="font-mono uppercase"
+                onChange={e => setPrefixValue(e.target.value.toUpperCase())}
+                onKeyDown={e => { if (e.key === 'Enter') saveRename() }}
+              />
+              <p className="text-xs text-muted-foreground">
+                {prefixValue.trim()
+                  ? <>New tasks on this board will be numbered <span className="font-mono font-medium text-foreground">{prefixValue.trim().toUpperCase()}-1</span>, {prefixValue.trim().toUpperCase()}-2, and so on.</>
+                  : <>Leave blank to use the shared numbering (<span className="font-mono">TMS-1</span>, <span className="font-mono">TMS-2</span>…). Existing ticket numbers never change.</>}
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowRename(false)} disabled={saving}>Cancel</Button>

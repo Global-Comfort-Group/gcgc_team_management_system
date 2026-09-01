@@ -108,6 +108,7 @@ interface Task {
   memberSubmittedAt?: string | null
   leaderEvaluatedAt?: string | null
   status: 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'COMPLETED'
+  ticketNumber?: string | null
   customStatusId?: string | null
   progressPercentage: number
   taskType: 'INDIVIDUAL' | 'TEAM' | 'COLLABORATION' | 'CASCADING'
@@ -1832,9 +1833,16 @@ export default function TasksPage() {
 
                                 {/* Header: title + actions */}
                                 <div className="flex items-start justify-between gap-2 mb-2">
-                                  <h4 className="font-semibold text-sm leading-snug text-gray-900 line-clamp-2 flex-1 min-w-0">
-                                    {task.title}
-                                  </h4>
+                                  <div className="flex-1 min-w-0">
+                                    {task.ticketNumber && (
+                                      <span className="block font-mono text-[11px] font-medium text-slate-400 leading-none mb-1">
+                                        {task.ticketNumber}
+                                      </span>
+                                    )}
+                                    <h4 className="font-semibold text-sm leading-snug text-gray-900 line-clamp-2">
+                                      {task.title}
+                                    </h4>
+                                  </div>
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <Button

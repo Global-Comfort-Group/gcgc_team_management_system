@@ -49,6 +49,7 @@ interface Task {
   dueDate?: string
   startDate?: string
   status: 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'COMPLETED'
+  ticketNumber?: string | null
   progressPercentage: number
   taskType: 'INDIVIDUAL' | 'TEAM' | 'COLLABORATION' | 'CASCADING'
   // Google Calendar fields
@@ -2039,6 +2040,24 @@ export default function TaskViewModal({
           )}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <div className="flex-1 space-y-2 min-w-0">
+              {task.ticketNumber && (
+                <button
+                  type="button"
+                  className="group inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-xs font-medium text-slate-600 hover:bg-slate-100"
+                  title="Copy ticket number"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(task.ticketNumber!)
+                      toast({ title: 'Ticket number copied', description: task.ticketNumber! })
+                    } catch {
+                      toast({ title: 'Copy failed', description: task.ticketNumber! })
+                    }
+                  }}
+                >
+                  {task.ticketNumber}
+                  <Copy className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-60" />
+                </button>
+              )}
               <div className="flex items-start gap-2 min-w-0">
                 <span className="flex-shrink-0 mt-1">{getTaskTypeIcon(task.taskType)}</span>
                 <DialogTitle className="text-xl font-semibold break-words min-w-0">
