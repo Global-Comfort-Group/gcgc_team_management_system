@@ -554,7 +554,7 @@ export default function AdminLeadersPage() {
         open={!!selectedLeader}
         onOpenChange={(open) => { if (!open) { setSelectedLeader(null); setUserTasks([]) } }}
       >
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0 sm:p-0 gap-0">
+        <DialogContent padded={false} className="max-w-2xl max-h-[85vh] flex flex-col gap-0">
           {/* Header */}
           <div className="px-6 pr-14 pt-6 pb-4 border-b">
             <div className="flex items-center gap-3">

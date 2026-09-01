@@ -427,8 +427,11 @@ export default function TaskViewModal({
   // Task attachment preview. Same reason as previewImage above: OSS force-downloads
   // from its default endpoint, so the file has to be rendered in-app rather than
   // opened by URL.
-  const [previewFile, setPreviewFile] = useState<{ url: string; name: string; type: string | null } | null>(null)
+  const [previewFile, setPreviewFile] = useState<{ id: string; url: string; name: string; type: string | null } | null>(null)
   const [claiming, setClaiming] = useState(false)
+  const [editingTicket, setEditingTicket] = useState(false)
+  const [ticketDraft, setTicketDraft] = useState('')
+  const [savingTicket, setSavingTicket] = useState(false)
   const [recurringSettings, setRecurringSettings] = useState<{
     id: string
     recurringFrequency: string | null
@@ -2047,23 +2050,78 @@ export default function TaskViewModal({
           )}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <div className="flex-1 space-y-2 min-w-0">
-              {task.ticketNumber && (
-                <button
-                  type="button"
-                  className="group inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-xs font-medium text-slate-600 hover:bg-slate-100"
-                  title="Copy ticket number"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(task.ticketNumber!)
-                      toast({ title: 'Ticket number copied', description: task.ticketNumber! })
-                    } catch {
-                      toast({ title: 'Copy failed', description: task.ticketNumber! })
-                    }
-                  }}
-                >
-                  {task.ticketNumber}
-                  <Copy className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-60" />
-                </button>
+              {/* Click to copy; pencil to change it. The API has always supported
+                  editing — this is the control that was missing, so a number
+                  could be set at creation and never corrected afterwards. */}
+              {task.ticketNumber && !editingTicket && (
+                <span className="inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    className="group inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-xs font-medium text-slate-600 hover:bg-slate-100"
+                    title="Copy ticket number"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(task.ticketNumber!)
+                        toast({ title: 'Ticket number copied', description: task.ticketNumber! })
+                      } catch {
+                        toast({ title: 'Copy failed', description: task.ticketNumber! })
+                      }
+                    }}
+                  >
+                    {task.ticketNumber}
+                    <Copy className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-60" />
+                  </button>
+                  {canEditDependencies && (
+                    <button
+                      type="button"
+                      className="text-slate-300 hover:text-slate-600"
+                      title="Change ticket number"
+                      onClick={() => { setTicketDraft(task.ticketNumber || ''); setEditingTicket(true) }}
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
+              )}
+
+              {editingTicket && (
+                <span className="inline-flex items-center gap-1">
+                  <input
+                    autoFocus
+                    value={ticketDraft}
+                    onChange={(e) => setTicketDraft(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => { if (e.key === 'Escape') setEditingTicket(false) }}
+                    className="h-6 w-28 rounded-md border px-2 font-mono text-xs"
+                    placeholder="OPS-14"
+                    maxLength={24}
+                  />
+                  <Button
+                    size="sm" className="h-6 px-2 text-[11px]" disabled={savingTicket}
+                    onClick={async () => {
+                      setSavingTicket(true)
+                      try {
+                        const res = await fetch(`/api/tasks/${task.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          // Empty clears it; the server does not reallocate.
+                          body: JSON.stringify({ ticketNumber: ticketDraft.trim() || null }),
+                        })
+                        if (res.ok) {
+                          setEditingTicket(false)
+                          toast({ title: 'Ticket number updated' })
+                          onTaskUpdate?.()
+                        } else {
+                          const err = await res.json().catch(() => ({}))
+                          toast({ title: 'Could not update', description: err.error, variant: 'destructive' })
+                        }
+                      } finally { setSavingTicket(false) }
+                    }}
+                  >
+                    {savingTicket ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]"
+                    onClick={() => setEditingTicket(false)}>Cancel</Button>
+                </span>
               )}
               {/* Addressed to a role and not yet taken. The server checks the
                   caller actually holds the role, so showing this to everyone is
@@ -3128,7 +3186,7 @@ export default function TaskViewModal({
                     {isPreviewable(a.fileType, a.fileName) ? (
                       <button
                         type="button"
-                        onClick={() => setPreviewFile({ url: a.fileUrl, name: a.fileName, type: a.fileType ?? null })}
+                        onClick={() => setPreviewFile({ id: a.id, url: a.fileUrl, name: a.fileName, type: a.fileType ?? null })}
                         className="flex-1 truncate text-left text-blue-600 hover:underline"
                         title={`Preview ${a.fileName}`}
                       >
@@ -3510,7 +3568,7 @@ export default function TaskViewModal({
           {/* Full-size image preview (lightbox). Renders the image in-app so it
               previews instead of force-downloading from the OSS default endpoint. */}
           <Dialog open={!!previewImage} onOpenChange={(o) => { if (!o) setPreviewImage(null) }}>
-            <DialogContent className="max-w-5xl w-fit bg-transparent border-0 shadow-none p-0 sm:p-0">
+            <DialogContent padded={false} className="max-w-5xl w-fit bg-transparent border-0 shadow-none">
               <DialogTitle className="sr-only">Image preview</DialogTitle>
               {previewImage && (
                 <img
@@ -3527,15 +3585,23 @@ export default function TaskViewModal({
               footer keeps a real download and a new-tab escape hatch for
               anything the browser declines to render. */}
           <Dialog open={!!previewFile} onOpenChange={(o) => { if (!o) setPreviewFile(null) }}>
-            <DialogContent className="max-w-5xl w-[95vw] p-0 sm:p-0 gap-0 overflow-hidden">
+            <DialogContent padded={false} className="max-w-5xl w-[95vw] gap-0 overflow-hidden">
               <DialogHeader className="px-4 pr-14 py-3 border-b">
                 <DialogTitle className="truncate text-sm font-medium">{previewFile?.name}</DialogTitle>
               </DialogHeader>
               <div className="bg-slate-50 flex items-center justify-center min-h-[50vh] max-h-[75vh] overflow-auto">
                 {previewFile && isImageAttachment(previewFile.type, previewFile.name) ? (
                   <img src={previewFile.url} alt={previewFile.name} className="max-h-[75vh] w-auto max-w-full object-contain" />
-                ) : previewFile ? (
-                  <iframe src={previewFile.url} title={previewFile.name} className="w-full h-[75vh] border-0 bg-white" />
+                ) : previewFile && task ? (
+                  // Through the proxy, not the OSS URL: OSS sends
+                  // Content-Disposition: attachment, which an iframe honours by
+                  // downloading. An <img> ignores that header, so images above
+                  // still use the direct URL and skip the round trip.
+                  <iframe
+                    src={`/api/tasks/${task.id}/attachments/${previewFile.id}/raw`}
+                    title={previewFile.name}
+                    className="w-full h-[75vh] border-0 bg-white"
+                  />
                 ) : null}
               </div>
               <div className="flex items-center justify-end gap-2 px-4 py-3 border-t">

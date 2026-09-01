@@ -758,7 +758,7 @@ export default function CalendarPage() {
 
       {/* Event Details Dialog - Professional Design */}
       <Dialog open={isEventDialogOpen} onOpenChange={setIsEventDialogOpen}>
-        <DialogContent className="sm:max-w-lg p-0 sm:p-0 overflow-hidden max-h-[90vh] flex flex-col">
+        <DialogContent padded={false} className="sm:max-w-lg overflow-hidden max-h-[90vh] flex flex-col">
           {/* Accessibility - Visually Hidden Title & Description */}
           <DialogHeader className="sr-only">
             <DialogTitle>{selectedEvent?.title || 'Event Details'}</DialogTitle>
