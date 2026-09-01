@@ -284,6 +284,15 @@ model KanbanBoard {
   // Project Info: optional manual override of the actual project %. Null => the
   // actual is computed (weighted measurements, else average finished-task %).
   manualActualPercent Int?
+  // Ticket numbering. The prefix is UNIQUE across boards: two boards sharing
+  // "OPS" would each allocate OPS-5 and the second task creation would fail the
+  // global unique on Task.ticketNumber. Uniqueness also makes "bump that
+  // prefix's counter" well defined. Null => tasks on this board fall back to
+  // the global TicketSequence prefix.
+  ticketPrefix  String? @unique @db.VarChar(10)
+  // Last number issued. Never decremented: reusing a number after a delete
+  // would make an old reference point at different work.
+  ticketCounter Int     @default(0)
 
   owner    User                @relation("BoardOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   team     Team?               @relation("TeamBoard", fields: [teamId], references: [id], onDelete: Cascade)
@@ -534,6 +543,9 @@ model Task {
   // Snapshot taken when a task is archived to the Backlog, so restoring puts it
   // back where it was instead of dumping everything into To Do at 0%. Null for
   // tasks archived before this existed — those still restore to TODO/0.
+  // Human-quotable id, e.g. "OPS-14". Denormalised so lists and search need no
+  // board join, and so a manually-set number survives a move between boards.
+  ticketNumber               String?     @unique
   backlogPriorStatus         TaskStatus?
   backlogPriorProgress       Int?
   backlogPriorCustomStatusId String?
@@ -1238,4 +1250,15 @@ enum OSSBStatus {
   RECOMMENDED
   APPROVED
   REJECTED
+}
+
+/// Single-row counter for tasks that belong to no board. 58% of production
+/// tasks are board-less, so a per-board scheme alone would leave the majority
+/// of work unquotable — which defeats the point of having a ticket number.
+model TicketSequence {
+  id      String @id @default("global")
+  prefix  String @default("TMS") @db.VarChar(10)
+  counter Int    @default(0)
+
+  @@map("ticket_sequence")
 }

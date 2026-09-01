@@ -12,6 +12,7 @@ import { setTaskAssignees } from '@/lib/task-assignees'
 import { setTaskFieldValues } from '@/lib/task-fields'
 import { taskInvolvementOr } from '@/lib/task-scope'
 import { broadcastTaskChange } from '@/lib/task-events'
+import { allocateTicketNumber, applyManualTicketNumber, TicketNumberError } from '@/lib/ticket-allocate'
 
 const cascadeStepSchema = z.object({
   title: z.string().min(1).max(200),
@@ -52,6 +53,8 @@ const createTaskSchema = z.object({
   taskWeight: z.number().int().min(1).max(5).optional(),
   slaHours: z.number().int().min(1).optional().nullable(),
   reminderDays: z.array(z.number().int().min(1)).optional().default([]),
+  // Optional manual ticket number ("OPS-14"). Omitted => allocated automatically.
+  ticketNumber: z.string().trim().max(24).optional().nullable(),
   // Kanban board
   boardId: z.string().optional().nullable(),
   // Per-board custom status column to drop the new task into (#26)
@@ -301,6 +304,9 @@ export async function GET(req: NextRequest) {
     // Handle search - merge with existing OR conditions
     if (search) {
       const searchConditions = [
+        // Ticket number first: someone pasting "OPS-14" wants that one task,
+        // and an exact id match should not be buried under title matches.
+        { ticketNumber: { equals: search.trim().toUpperCase() } },
         { title: { contains: search, mode: 'insensitive' } },
         { description: { contains: search, mode: 'insensitive' } },
         // Search in user names (assignee, creator, team members, collaborators)
@@ -607,6 +613,7 @@ export async function POST(req: NextRequest) {
       customStatusId,
       fieldValues,
       attachments,
+      ticketNumber: manualTicketNumber,
     } = createTaskSchema.parse(body)
 
     // Normalize attachment rows once; reused by whichever creation path runs.
@@ -733,6 +740,7 @@ export async function POST(req: NextRequest) {
         // automatically when the current one is marked COMPLETED.
         const firstInstance = await tx.task.create({
           data: {
+            ticketNumber: await allocateTicketNumber(tx, link.boardId),
             title,
             description,
             priority,
@@ -816,9 +824,17 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Ticket number. Allocated inside this transaction so two concurrent
+      // creates cannot be handed the same number; a manual value is validated
+      // and pulls the owning counter up behind it.
+      const ticket = manualTicketNumber
+        ? await applyManualTicketNumber(tx, manualTicketNumber)
+        : await allocateTicketNumber(tx, link.boardId)
+
       // Create the task
       const newTask = await tx.task.create({
         data: {
+          ticketNumber: ticket,
           title,
           description,
           priority,
@@ -1106,7 +1122,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(task, { status: 201 })
   } catch (error) {
     console.error('Task creation error:', error)
-    
+
+    // A rejected ticket number is user input, not a server fault.
+    if (error instanceof TicketNumberError) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Invalid input data', details: error.errors },

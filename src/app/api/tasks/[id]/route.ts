@@ -13,6 +13,7 @@ import { setTaskFieldValues } from '@/lib/task-fields'
 import { notifyTaskAssigned, notifyTaskUpdated, notifyTaskCompleted, notifyTaskSubmittedForReview, notifySubtaskAssigned } from '@/lib/notifications'
 import { broadcastTaskChange, resolveTaskAudience, emitTaskChanged } from '@/lib/task-events'
 import { resolveBacklogEntry, resolveBacklogRestore, leavesBacklogExplicitly } from '@/lib/backlog-state'
+import { applyManualTicketNumber, TicketNumberError } from '@/lib/ticket-allocate'
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).max(100).optional(),
@@ -22,6 +23,10 @@ const updateTaskSchema = z.object({
   // inferred one: a task leaving BACKLOG for TODO could equally be a restore or
   // someone dragging the card onto the To Do column, and those must differ.
   restoreFromBacklog: z.boolean().optional(),
+  // Manual ticket number. A string sets or changes it; null clears it. Cleared
+  // numbers are not reallocated — silently renumbering a task people may have
+  // quoted elsewhere would be worse than leaving it blank.
+  ticketNumber: z.string().trim().max(24).nullish(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
   dueDate: z.string().datetime().optional(),
   startDate: z.string().datetime().optional(),
@@ -605,6 +610,14 @@ export async function PATCH(
         select: { id: true },
       })
       if (def) (updateData as any).customStatusId = def.id
+    }
+
+    // ── Ticket number ──────────────────────────────────────────────────────
+    if ((updateData as any).ticketNumber !== undefined) {
+      const raw = (updateData as any).ticketNumber
+      ;(updateData as any).ticketNumber = raw
+        ? await applyManualTicketNumber(prisma, raw, { excludeTaskId: params.id })
+        : null
     }
 
     // ── Backlog archive / restore ──────────────────────────────────────────
@@ -1235,7 +1248,11 @@ export async function PATCH(
     })
   } catch (error) {
     console.error('Task update error:', error)
-    
+
+    if (error instanceof TicketNumberError) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Invalid input data', details: error.errors },
