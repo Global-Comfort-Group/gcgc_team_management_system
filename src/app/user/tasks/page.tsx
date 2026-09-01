@@ -1049,14 +1049,16 @@ export default function TasksPage() {
     }
   }
 
-  // Archive a task to the Backlog (hidden from the board). Restore brings it
-  // back to To Do. Clearing customStatusId detaches it from any column.
+  // Archive a task to the Backlog (hidden from the board). The server snapshots
+  // the task's status/progress/column on the way in and clears the live state —
+  // sending progressPercentage: 0 from here would destroy the very progress the
+  // snapshot exists to preserve.
   const moveTaskToBacklog = async (task: Task) => {
     try {
       const res = await fetch(`/api/tasks/${task.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'BACKLOG', progressPercentage: 0, customStatusId: null }),
+        body: JSON.stringify({ status: 'BACKLOG' }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to move task')
       await fetchTasks(false); fetchBoards()
@@ -1066,16 +1068,18 @@ export default function TasksPage() {
     }
   }
 
+  // Restore puts the task back where it was. The target isn't ours to pick —
+  // the server holds the snapshot — so send the action, not a status.
   const restoreFromBacklog = async (task: Task) => {
     try {
       const res = await fetch(`/api/tasks/${task.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'TODO', progressPercentage: 0, customStatusId: null }),
+        body: JSON.stringify({ restoreFromBacklog: true }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to restore task')
       await fetchTasks(false); fetchBoards()
-      toast({ title: 'Restored to To Do' })
+      toast({ title: 'Task restored' })
     } catch (e: any) {
       toast({ title: 'Error', description: e?.message || 'Could not restore task', variant: 'destructive' })
     }

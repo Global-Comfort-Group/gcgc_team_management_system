@@ -33,6 +33,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { splitDuplicatedChildren } from '@/lib/duplicate-prefill'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { generateOccurrenceDates } from '@/lib/recurring'
 import { useToast } from '@/hooks/use-toast'
@@ -333,20 +334,21 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
         setAttachments([])
         // Carry over subtasks when duplicating. DuplicateTaskDialog includes the
         // source subtasks when the "Subtasks" option is checked; without loading
-        // them into pendingSubtasks they'd be silently dropped on submit.
-        if (Array.isArray(duplicateFrom.subtasks) && duplicateFrom.subtasks.length > 0) {
-          setPendingSubtasks(
-            duplicateFrom.subtasks.map((s: any, i: number) => ({
-              id: `dup-${i}-${s.id ?? s.title}`,
-              title: s.title,
-              assigneeId: s.assignee?.id ?? s.assigneeId ?? '',
-              assignee: s.assignee,
-              dueDate: s.dueDate || undefined,
-            }))
-          )
-        } else {
-          setPendingSubtasks([])
-        }
+        // them they'd be silently dropped on submit.
+        //
+        // A cascading duplicate has to land in cascadeSteps, not pendingSubtasks:
+        // the cascading UI renders from cascadeSteps, so loading them into
+        // pendingSubtasks left the form looking empty while submit still created
+        // them. Read the toggle from the source here rather than the state set
+        // just above — that setState hasn't applied yet in this pass.
+        const duplicateIsCascading =
+          !!(duplicateFrom as any).isCascading || duplicateFrom.taskType === 'CASCADING'
+        const duplicatedChildren = splitDuplicatedChildren(
+          duplicateFrom.subtasks as any,
+          duplicateIsCascading
+        )
+        setPendingSubtasks(duplicatedChildren.pendingSubtasks)
+        setCascadeSteps(duplicatedChildren.cascadeSteps)
         setNewSubtaskTitle('')
         setNewSubtaskAssigneeId('')
         setNewSubtaskDeadline('')
@@ -815,8 +817,8 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="z-[100] flex flex-col gap-0 p-0 overflow-hidden w-screen max-w-none h-[100dvh] sm:w-auto sm:max-w-4xl sm:h-auto sm:max-h-[90vh]">
-        <DialogHeader className="sticky top-0 z-10 bg-background border-b px-6 pt-6 pb-4">
+      <DialogContent className="z-[100] flex flex-col gap-0 p-0 sm:p-0 overflow-hidden w-screen max-w-none h-[100dvh] sm:w-auto sm:max-w-4xl sm:h-auto sm:max-h-[90vh]">
+        <DialogHeader className="sticky top-0 z-10 bg-background border-b px-6 pr-14 pt-6 pb-4">
           <DialogTitle>{task ? 'Edit Task' : duplicateFrom ? 'Duplicate Task' : 'Create New Task'}</DialogTitle>
           <DialogDescription>
             {task ? 'Update the task details below.' : duplicateFrom ? 'Review and adjust the duplicated task before saving.' : 'Fill in the details to create a new task.'}

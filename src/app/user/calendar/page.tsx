@@ -758,7 +758,7 @@ export default function CalendarPage() {
 
       {/* Event Details Dialog - Professional Design */}
       <Dialog open={isEventDialogOpen} onOpenChange={setIsEventDialogOpen}>
-        <DialogContent className="sm:max-w-lg p-0 overflow-hidden max-h-[90vh] flex flex-col">
+        <DialogContent className="sm:max-w-lg p-0 sm:p-0 overflow-hidden max-h-[90vh] flex flex-col">
           {/* Accessibility - Visually Hidden Title & Description */}
           <DialogHeader className="sr-only">
             <DialogTitle>{selectedEvent?.title || 'Event Details'}</DialogTitle>
@@ -771,7 +771,7 @@ export default function CalendarPage() {
             <>
               {/* Header with Color Accent */}
               <div
-                className="px-6 py-5 border-b"
+                className="px-6 pr-14 py-5 border-b"
                 style={{
                   background: `linear-gradient(135deg, ${selectedEvent.resource?.color || '#3b82f6'}15, ${selectedEvent.resource?.color || '#3b82f6'}08)`,
                   borderLeft: `4px solid ${selectedEvent.resource?.color || '#3b82f6'}`

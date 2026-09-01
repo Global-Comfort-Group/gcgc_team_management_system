@@ -554,9 +554,9 @@ export default function AdminLeadersPage() {
         open={!!selectedLeader}
         onOpenChange={(open) => { if (!open) { setSelectedLeader(null); setUserTasks([]) } }}
       >
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0">
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0 sm:p-0 gap-0">
           {/* Header */}
-          <div className="px-6 pt-6 pb-4 border-b">
+          <div className="px-6 pr-14 pt-6 pb-4 border-b">
             <div className="flex items-center gap-3">
               <Avatar className="h-12 w-12 rounded-xl ring-2 ring-slate-200">
                 <AvatarFallback className="rounded-xl bg-gradient-to-br from-blue-50 to-blue-100 text-blue-700 font-bold text-lg">

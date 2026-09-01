@@ -203,8 +203,8 @@ export default function MemberProfileModal({ isOpen, onClose, memberId }: Member
   return (
     <>
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col p-0">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-slate-100 shrink-0">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col p-0 sm:p-0">
+          <DialogHeader className="px-6 pr-14 pt-6 pb-4 border-b border-slate-100 shrink-0">
             <DialogTitle className="flex items-center gap-2 text-slate-900">
               <div className="p-1.5 bg-blue-50 rounded-lg">
                 <User className="h-4 w-4 text-blue-600" />

@@ -3437,7 +3437,7 @@ export default function TaskViewModal({
           {/* Full-size image preview (lightbox). Renders the image in-app so it
               previews instead of force-downloading from the OSS default endpoint. */}
           <Dialog open={!!previewImage} onOpenChange={(o) => { if (!o) setPreviewImage(null) }}>
-            <DialogContent className="max-w-5xl w-fit bg-transparent border-0 shadow-none p-0">
+            <DialogContent className="max-w-5xl w-fit bg-transparent border-0 shadow-none p-0 sm:p-0">
               <DialogTitle className="sr-only">Image preview</DialogTitle>
               {previewImage && (
                 <img
