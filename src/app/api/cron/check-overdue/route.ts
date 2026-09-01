@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { allocateTicketNumber } from '@/lib/ticket-allocate'
 import { prisma } from '@/lib/prisma'
 import { getNextOccurrenceDate } from '@/lib/recurring'
 import { isAuthorizedCronRequest } from '@/lib/cron-auth'
@@ -89,6 +90,7 @@ export async function GET(req: NextRequest) {
               if (!alreadyExists) {
                 const newInst = await prisma.task.create({
                   data: {
+                    ticketNumber: await allocateTicketNumber(prisma, null),
                     title: template.title,
                     description: template.description,
                     priority: template.priority,

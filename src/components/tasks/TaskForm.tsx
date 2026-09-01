@@ -161,6 +161,8 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
 
   // Cascade steps state
   const [cascadeSteps, setCascadeSteps] = useState<CascadeStep[]>([])
+  // Optional manual ticket number. Blank => the server allocates the next one.
+  const [manualTicket, setManualTicket] = useState('')
 
   // Per-board custom field values (fieldId -> value)
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({})
@@ -350,6 +352,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
         setPendingSubtasks(duplicatedChildren.pendingSubtasks)
         setCascadeSteps(duplicatedChildren.cascadeSteps)
         setNewSubtaskTitle('')
+        setManualTicket('')
         setNewSubtaskAssigneeId('')
         setNewSubtaskDeadline('')
       } else {
@@ -626,6 +629,12 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
         }
       }
 
+      // Only send a manual ticket number when one was typed; otherwise the
+      // server allocates.
+      if (!task && manualTicket.trim()) {
+        ;(submissionData as any).ticketNumber = manualTicket.trim()
+      }
+
       // Include subtasks in submission (only for non-cascading tasks)
       submissionData.subtasks = pendingSubtasks.map(s => ({
         title: s.title,
@@ -849,6 +858,29 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
                   </p>
                 )}
               </div>
+
+              {/* Manual ticket number — create only. Editing an existing
+                  task's number is supported by the API but has no UI yet; the
+                  task view shows and copies the number but does not change it. */}
+              {!task && (
+                <div className="space-y-2">
+                  <Label htmlFor="ticketNumber" className="text-base">
+                    Ticket Number <span className="text-muted-foreground font-normal text-sm">(optional)</span>
+                  </Label>
+                  <Input
+                    id="ticketNumber"
+                    value={manualTicket}
+                    onChange={e => setManualTicket(e.target.value.toUpperCase())}
+                    placeholder="Leave blank to assign automatically"
+                    maxLength={24}
+                    className="h-11 font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Set your own, e.g. <span className="font-mono">OPS-14</span> — useful when importing an id from
+                    another system. Must be unique.
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="description" className="text-base">Description</Label>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { allocateTicketNumber } from '@/lib/ticket-allocate'
 import { prisma } from '@/lib/prisma'
 import { setTaskAssignees } from '@/lib/task-assignees'
 import { setTaskFieldValues } from '@/lib/task-fields'
@@ -97,6 +98,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const created = await prisma.$transaction(async (tx) => {
       const task = await tx.task.create({
         data: {
+          ticketNumber: await allocateTicketNumber(tx, form.board.id),
           title: data.title.trim(),
           description,
           priority: 'MEDIUM',

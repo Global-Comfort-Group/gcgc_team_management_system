@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { getRequestSession } from '@/lib/api-auth'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -13,6 +14,10 @@ import { setTaskFieldValues } from '@/lib/task-fields'
 import { notifyTaskAssigned, notifyTaskUpdated, notifyTaskCompleted, notifyTaskSubmittedForReview, notifySubtaskAssigned } from '@/lib/notifications'
 import { broadcastTaskChange, resolveTaskAudience, emitTaskChanged } from '@/lib/task-events'
 import { resolveBacklogEntry, resolveBacklogRestore, leavesBacklogExplicitly } from '@/lib/backlog-state'
+import { allocateTicketNumber } from '@/lib/ticket-allocate'
+import { applyManualTicketNumber, TicketNumberError } from '@/lib/ticket-allocate'
+import { resolveRoleAddressing, NO_PERMISSIONS } from '@/lib/board-roles'
+import { loadBoardRoleContext } from '@/lib/board-roles-server'
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).max(100).optional(),
@@ -22,6 +27,15 @@ const updateTaskSchema = z.object({
   // inferred one: a task leaving BACKLOG for TODO could equally be a restore or
   // someone dragging the card onto the To Do column, and those must differ.
   restoreFromBacklog: z.boolean().optional(),
+  // Manual ticket number. A string sets or changes it; null clears it. Cleared
+  // numbers are not reallocated — silently renumbering a task people may have
+  // quoted elsewhere would be worse than leaving it blank.
+  ticketNumber: z.string().trim().max(24).nullish(),
+  // Address the task to a board role. Null clears it. This is addressing, not
+  // ownership — assigneeId still decides who the task belongs to.
+  assignedRoleId: z.string().nullish(),
+  // Claim a role-addressed task for yourself.
+  claim: z.boolean().optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
   dueDate: z.string().datetime().optional(),
   startDate: z.string().datetime().optional(),
@@ -338,6 +352,14 @@ export async function PATCH(
       })
     }
 
+    // Board-role grants, resolved once. These are OR-ed into the gates below,
+    // so they can only widen who may act — a board with no roles resolves to
+    // all-false and every existing decision is untouched. That is the property
+    // that makes adding an access-control layer to a live system safe.
+    const boardPerms = existingTask.boardId
+      ? (await loadBoardRoleContext(existingTask.boardId, session.user.id, session.user.role))?.permissions ?? NO_PERMISSIONS
+      : NO_PERMISSIONS
+
     const body = await req.json()
     const updateData = updateTaskSchema.parse(body)
 
@@ -476,7 +498,7 @@ export async function PATCH(
       // Finishers (admin / board leader / board owner / parent leader) can move
       // the task to any status, including COMPLETED. The assignee can move it
       // between non-completed statuses; everyone else is blocked.
-      if (!canComplete && !canChangeTaskStatus({
+      if (!canComplete && !boardPerms.canChangeStatus && !canChangeTaskStatus({
         isAdmin,
         isAssignee,
         isBoardLeader,
@@ -517,7 +539,7 @@ export async function PATCH(
         return NextResponse.json({ error: 'Leaders can only change the due date on subordinate tasks' }, { status: 403 })
       }
       // Skip canEditTask — dueDate-only override is permitted
-    } else if (!canComplete && !canEditTask(
+    } else if (!canComplete && !boardPerms.canEditAnyTask && !canEditTask(
       session.user.role,
       existingTask.creatorId,
       [existingTask.assigneeId, ...(existingTask.assignees?.map(a => a.userId) || [])].filter((id): id is string => !!id),
@@ -605,6 +627,56 @@ export async function PATCH(
         select: { id: true },
       })
       if (def) (updateData as any).customStatusId = def.id
+    }
+
+    // ── Role addressing ────────────────────────────────────────────────────
+    // A role with exactly one holder is just a shortcut, so assign them. Several
+    // holders leaves the task claimable. None would make the task invisible to
+    // everyone, so it is rejected rather than silently created.
+    if ((updateData as any).assignedRoleId) {
+      const role = await prisma.boardRole.findUnique({
+        where: { id: (updateData as any).assignedRoleId },
+        select: { name: true, boardId: true, assignments: { select: { userId: true } } },
+      })
+      if (!role || (existingTask.boardId && role.boardId !== existingTask.boardId)) {
+        return NextResponse.json(
+          { error: 'That role does not belong to this task\'s board.' },
+          { status: 400 }
+        )
+      }
+      const outcome = resolveRoleAddressing({ name: role.name, holderIds: role.assignments.map(a => a.userId) })
+      if (outcome.kind === 'reject') {
+        return NextResponse.json({ error: outcome.reason }, { status: 400 })
+      }
+      if (outcome.kind === 'assign') {
+        ;(updateData as any).assigneeId = outcome.userId
+      }
+    }
+
+    // Claiming: the caller takes an unclaimed role-addressed task. Only someone
+    // who actually holds the role may claim it.
+    if ((updateData as any).claim === true) {
+      delete (updateData as any).claim
+      if (!existingTask.assignedRoleId) {
+        return NextResponse.json({ error: 'This task is not waiting on a role.' }, { status: 400 })
+      }
+      const holds = await prisma.boardRoleAssignment.findFirst({
+        where: { roleId: existingTask.assignedRoleId, userId: session.user.id },
+        select: { id: true },
+      })
+      if (!holds) {
+        return NextResponse.json({ error: 'You do not hold that role.' }, { status: 403 })
+      }
+      ;(updateData as any).assigneeId = session.user.id
+    }
+    delete (updateData as any).claim
+
+    // ── Ticket number ──────────────────────────────────────────────────────
+    if ((updateData as any).ticketNumber !== undefined) {
+      const raw = (updateData as any).ticketNumber
+      ;(updateData as any).ticketNumber = raw
+        ? await applyManualTicketNumber(prisma, raw, { excludeTaskId: params.id })
+        : null
     }
 
     // ── Backlog archive / restore ──────────────────────────────────────────
@@ -1128,6 +1200,9 @@ export async function PATCH(
               nextRecurringInstance = await prisma.$transaction(async (tx2) => {
                 const newInst = await tx2.task.create({
                   data: {
+                    // Recurring instances are real, quotable tasks. Board-less
+                    // (these creates set no boardId), so the global sequence.
+                    ticketNumber: await allocateTicketNumber(tx2, null),
                     title: template.title,
                     description: template.description,
                     priority: template.priority,
@@ -1235,7 +1310,25 @@ export async function PATCH(
     })
   } catch (error) {
     console.error('Task update error:', error)
-    
+
+    if (error instanceof TicketNumberError) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
+
+    // Two people claiming the same number at once both pass the findFirst
+    // check; the loser hits the unique index. That is still bad user input,
+    // not a server fault, so it gets the same 400 rather than a generic 500.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002' &&
+      String((error.meta as any)?.target ?? '').includes('ticketNumber')
+    ) {
+      return NextResponse.json(
+        { error: 'That ticket number was just taken. Try another.' },
+        { status: 409 }
+      )
+    }
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Invalid input data', details: error.errors },
@@ -1273,6 +1366,7 @@ export async function DELETE(
         creatorId: true,
         teamId: true,
         recurringParentId: true,
+        boardId: true, // needed to resolve board-role grants for the delete gate
         parentId: true,
         assignedById: true,
       }
@@ -1310,6 +1404,13 @@ export async function DELETE(
       existingTask.assignedById ?? undefined,
       teamMember?.role
     )
+
+    // A board role granting canDeleteTask also allows it. Grant-only: this can
+    // add a deleter, never remove one.
+    if (!canDelete && existingTask.boardId) {
+      const ctx = await loadBoardRoleContext(existingTask.boardId, session.user.id, session.user.role)
+      if (ctx?.permissions.canDeleteTask) canDelete = true
+    }
 
     // For a subtask, anyone who could delete/manage its PARENT task may delete it
     // too (a parent's creator / assigning leader / team leader / admin). This is

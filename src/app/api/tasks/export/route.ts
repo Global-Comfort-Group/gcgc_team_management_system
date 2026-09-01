@@ -128,6 +128,8 @@ export async function GET(req: NextRequest) {
     const wb = new ExcelJS.Workbook()
     const ws = wb.addWorksheet('Tasks')
     ws.columns = [
+      // First column: the id people quote when they refer back to a row.
+      { header: 'Ticket', key: 'ticket', width: 12 },
       { header: 'Title', key: 'title', width: 44 },
       { header: 'Status', key: 'status', width: 14 },
       { header: 'Board', key: 'board', width: 22 },
@@ -147,6 +149,7 @@ export async function GET(req: NextRequest) {
     for (const t of tasks) {
       const valByField = new Map<string, string>(((t as any).fieldValues || []).map((v: any) => [v.fieldId, v.value]))
       const row: Record<string, any> = {
+        ticket: (t as any).ticketNumber || '',
         title: t.title,
         status: STATUS_LABEL[t.status as string] || t.status,
         board: t.board?.name || t.team?.name || '',

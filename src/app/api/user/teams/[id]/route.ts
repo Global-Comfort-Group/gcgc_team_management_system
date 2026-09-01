@@ -4,18 +4,24 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { authOptions } from '@/lib/auth'
 import { canManageTeam } from '@/lib/team-permissions'
+import { normalisePrefix } from '@/lib/ticket-number'
 
 const updateTeamSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).optional(),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  // Ticket prefix for this team's board ("OPS" => OPS-1, OPS-2). Empty string
+  // clears it, sending the board's tasks back to the global TMS- sequence.
+  // Set here rather than via /api/boards/[id], which refuses team boards — and
+  // every board in production is a team board.
+  ticketPrefix: z.string().trim().max(10).optional(),
 })
 
 const teamInclude = {
   members: {
     include: { user: { select: { id: true, name: true, email: true, image: true, role: true } } },
   },
-  board: { select: { id: true, name: true, color: true } },
+  board: { select: { id: true, name: true, color: true, ticketPrefix: true } },
   _count: { select: { members: true, tasks: true } },
 }
 
@@ -59,6 +65,34 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   try {
     const data = updateTeamSchema.parse(await req.json())
+
+    // Normalise and check the prefix before touching anything: it is unique
+    // across boards, so a clash must be reported clearly rather than surfacing
+    // as a constraint violation.
+    let prefixUpdate: { ticketPrefix: string | null } | null = null
+    if (data.ticketPrefix !== undefined) {
+      const wanted = data.ticketPrefix ? normalisePrefix(data.ticketPrefix) : null
+      if (data.ticketPrefix && !wanted) {
+        return NextResponse.json(
+          { error: 'Prefix must start with a letter and use only letters and numbers.' },
+          { status: 400 }
+        )
+      }
+      if (wanted && team.board) {
+        const clash = await prisma.kanbanBoard.findFirst({
+          where: { ticketPrefix: wanted, id: { not: team.board.id } },
+          select: { name: true },
+        })
+        if (clash) {
+          return NextResponse.json(
+            { error: `Prefix "${wanted}" is already used by the board "${clash.name}".` },
+            { status: 409 }
+          )
+        }
+      }
+      prefixUpdate = { ticketPrefix: wanted }
+    }
+
     const updated = await prisma.team.update({
       where: { id: params.id },
       data: {
@@ -68,12 +102,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         // Guarded: admin-created teams may have no board, and a nested update of a
         // missing relation throws. Only update the board when one exists and a
         // board-relevant field changed.
-        ...(team.board && (data.name !== undefined || data.color !== undefined)
+        ...(team.board && (data.name !== undefined || data.color !== undefined || prefixUpdate)
           ? {
               board: {
                 update: {
                   ...(data.name !== undefined ? { name: data.name } : {}),
                   ...(data.color !== undefined ? { color: data.color } : {}),
+                  ...(prefixUpdate ?? {}),
                 },
               },
             }

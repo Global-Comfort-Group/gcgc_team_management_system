@@ -68,6 +68,7 @@ model User {
   ownedTeams             Team[]              @relation("TeamOwner")
   boardMemberships       KanbanBoardMember[] @relation("BoardMember")
   boardReviewerOf        BoardReviewer[]     @relation("BoardReviewerUser")
+  boardRoles        BoardRoleAssignment[] @relation("BoardRoleUser")
   leadingMembers         LeaderMembership[]  @relation("LeaderMemberships")
   memberOfLeaders        LeaderMembership[]  @relation("MemberMemberships")
   passwordResetTokens    PasswordResetToken[]
@@ -284,12 +285,23 @@ model KanbanBoard {
   // Project Info: optional manual override of the actual project %. Null => the
   // actual is computed (weighted measurements, else average finished-task %).
   manualActualPercent Int?
+  // Ticket numbering. The prefix is UNIQUE across boards: two boards sharing
+  // "OPS" would each allocate OPS-5 and the second task creation would fail the
+  // global unique on Task.ticketNumber. Uniqueness also makes "bump that
+  // prefix's counter" well defined. Null => tasks on this board fall back to
+  // the global TicketSequence prefix.
+  ticketPrefix  String? @unique @db.VarChar(10)
+  // Last number issued. Never decremented: reusing a number after a delete
+  // would make an old reference point at different work.
+  ticketCounter Int     @default(0)
 
   owner    User                @relation("BoardOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   team     Team?               @relation("TeamBoard", fields: [teamId], references: [id], onDelete: Cascade)
   tasks     Task[]
   members   KanbanBoardMember[]
   reviewers BoardReviewer[]
+  roles     BoardRole[]
+  taskTemplate BoardTaskTemplate?
   statuses  BoardStatus[]
   fields   BoardField[]
   forms    IntakeForm[]
@@ -534,6 +546,15 @@ model Task {
   // Snapshot taken when a task is archived to the Backlog, so restoring puts it
   // back where it was instead of dumping everything into To Do at 0%. Null for
   // tasks archived before this existed — those still restore to TODO/0.
+  // Human-quotable id, e.g. "OPS-14". Denormalised so lists and search need no
+  // board join, and so a manually-set number survives a move between boards.
+  ticketNumber               String?     @unique
+  // #5 "assign per role": the task is ADDRESSED to a role. assigneeId stays
+  // authoritative for ownership — notifications, workload, "my tasks" and
+  // overdue all key off a real user, and would silently skip a task owned only
+  // by a role.
+  assignedRoleId             String?
+  assignedRole               BoardRole?  @relation("TaskAssignedRole", fields: [assignedRoleId], references: [id], onDelete: SetNull)
   backlogPriorStatus         TaskStatus?
   backlogPriorProgress       Int?
   backlogPriorCustomStatusId String?
@@ -1238,4 +1259,85 @@ enum OSSBStatus {
   RECOMMENDED
   APPROVED
   REJECTED
+}
+
+/// Single-row counter for tasks that belong to no board. 58% of production
+/// tasks are board-less, so a per-board scheme alone would leave the majority
+/// of work unquotable — which defeats the point of having a ticket number.
+model TicketSequence {
+  id      String @id @default("global")
+  prefix  String @default("TMS") @db.VarChar(10)
+  counter Int    @default(0)
+
+  @@map("ticket_sequence")
+}
+
+/// A custom role on one board ("Designer", "QA", "Approver").
+///
+/// Layers ON TOP of the three role systems that already exist (User.role,
+/// TeamMember.role, BoardReviewer) rather than replacing any of them, and can
+/// only GRANT permission, never revoke it. That makes the feature strictly
+/// additive: a board with no roles behaves exactly as it did before.
+///
+/// Permissions are explicit boolean columns, not a JSON bag: JSON cannot be
+/// filtered in SQL, and a misspelled key reads as undefined -> denied, which is
+/// the worst failure mode for access control because it is silent.
+model BoardRole {
+  id      String @id @default(cuid())
+  boardId String
+  name    String
+  color   String @default("#6B7280")
+
+  canCreateTask   Boolean @default(false)
+  canEditAnyTask  Boolean @default(false)
+  canDeleteTask   Boolean @default(false)
+  canChangeStatus Boolean @default(false)
+  canApprove      Boolean @default(false) // joins the reviewer capability
+  canManageBoard  Boolean @default(false) // settings, roles, columns
+
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  board       KanbanBoard           @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  assignments BoardRoleAssignment[]
+  tasks       Task[]                @relation("TaskAssignedRole")
+
+  @@unique([boardId, name]) // one "QA" per board
+  @@index([boardId])
+  @@map("board_roles")
+}
+
+/// Who holds a board role.
+model BoardRoleAssignment {
+  id        String   @id @default(cuid())
+  roleId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  role BoardRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user User      @relation("BoardRoleUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, userId])
+  @@index([userId])
+  @@map("board_role_assignments")
+}
+
+/// Defaults for new tasks on a board. Defaults, NOT constraints — every field
+/// stays editable in the form. One per board in v1.
+model BoardTaskTemplate {
+  id            String    @id @default(cuid())
+  boardId       String    @unique
+  titlePrefix   String?
+  description   String?
+  priority      Priority?
+  taskWeight    Int?
+  slaHours      Int?
+  defaultRoleId String?
+  checklist     Json?     // [{ title }] seeded as subtasks
+  updatedAt     DateTime  @updatedAt
+
+  board KanbanBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@map("board_task_templates")
 }
