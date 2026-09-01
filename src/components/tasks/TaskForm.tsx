@@ -859,9 +859,9 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
                 )}
               </div>
 
-              {/* Manual ticket number — only on create; changing an existing
-                  task's number is done from the task view, where the current
-                  value is visible. */}
+              {/* Manual ticket number — create only. Editing an existing
+                  task's number is supported by the API but has no UI yet; the
+                  task view shows and copies the number but does not change it. */}
               {!task && (
                 <div className="space-y-2">
                   <Label htmlFor="ticketNumber" className="text-base">

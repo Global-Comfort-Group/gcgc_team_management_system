@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { getRequestSession } from '@/lib/api-auth'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -13,6 +14,7 @@ import { setTaskFieldValues } from '@/lib/task-fields'
 import { notifyTaskAssigned, notifyTaskUpdated, notifyTaskCompleted, notifyTaskSubmittedForReview, notifySubtaskAssigned } from '@/lib/notifications'
 import { broadcastTaskChange, resolveTaskAudience, emitTaskChanged } from '@/lib/task-events'
 import { resolveBacklogEntry, resolveBacklogRestore, leavesBacklogExplicitly } from '@/lib/backlog-state'
+import { allocateTicketNumber } from '@/lib/ticket-allocate'
 import { applyManualTicketNumber, TicketNumberError } from '@/lib/ticket-allocate'
 
 const updateTaskSchema = z.object({
@@ -1141,6 +1143,9 @@ export async function PATCH(
               nextRecurringInstance = await prisma.$transaction(async (tx2) => {
                 const newInst = await tx2.task.create({
                   data: {
+                    // Recurring instances are real, quotable tasks. Board-less
+                    // (these creates set no boardId), so the global sequence.
+                    ticketNumber: await allocateTicketNumber(tx2, null),
                     title: template.title,
                     description: template.description,
                     priority: template.priority,
@@ -1251,6 +1256,20 @@ export async function PATCH(
 
     if (error instanceof TicketNumberError) {
       return NextResponse.json({ error: error.message }, { status: 400 })
+    }
+
+    // Two people claiming the same number at once both pass the findFirst
+    // check; the loser hits the unique index. That is still bad user input,
+    // not a server fault, so it gets the same 400 rather than a generic 500.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002' &&
+      String((error.meta as any)?.target ?? '').includes('ticketNumber')
+    ) {
+      return NextResponse.json(
+        { error: 'That ticket number was just taken. Try another.' },
+        { status: 409 }
+      )
     }
 
     if (error instanceof z.ZodError) {
