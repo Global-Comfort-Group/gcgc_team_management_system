@@ -183,6 +183,13 @@ Rules, in order:
 4. `canApprove` additionally true if in `BoardReviewer`.
 5. No roles, not a leader → today's behaviour exactly.
 
+**These are board-level capabilities, not per-task overrides.** In particular
+`canApprove` means "may act as an approver on this board" — it does **not** lift
+the per-task rule that a leader cannot approve their own work, which is the
+entire reason the reviewer pool exists. `resolveBoardPermissions` answers "what
+may this person do here"; the existing per-task checks still answer "may they do
+it to *this* task", and they run after.
+
 Routes call this instead of growing their own checks — the same
 "one source of truth" reason `task-scope.ts` exists after the dashboard drifted
 from the Tasks tab.
@@ -236,5 +243,8 @@ on them.
 - **A regression pass proving a board with no custom roles behaves exactly as it
   does today** — the single most important check, since this layer touches
   live permission paths
+- Explicitly: **a leader still cannot approve their own work**, with or without a
+  role granting `canApprove`. Step 5 of the build order is where that could be
+  silently weakened
 - Role assignment and claiming driven in a real browser
 - Confirm role deletion cannot orphan a board

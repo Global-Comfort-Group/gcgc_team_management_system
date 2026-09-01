@@ -58,7 +58,10 @@ its max assigned value.
 model KanbanBoard {
   // Uppercase short code, e.g. "OPS". Null until the board owner sets one, in
   // which case that board's tasks fall back to the global prefix.
-  ticketPrefix  String?  @db.VarChar(10)
+  // UNIQUE: two boards sharing a prefix would each allocate OPS-5 and the second
+  // would fail the global unique on Task.ticketNumber — the same months-later
+  // failure the manual-number rule guards against.
+  ticketPrefix  String?  @unique @db.VarChar(10)
   // Last number issued for this board. Never decremented — reusing a number
   // after a delete would make old references point at different work.
   ticketCounter Int      @default(0)
@@ -78,9 +81,12 @@ model TicketSequence {
 }
 ```
 
-`ticketNumber` is globally `@unique`, not unique-per-board: prefixes make
-collisions across boards impossible anyway, and a global constraint is what
-makes "look up by ticket number" a single indexed query.
+`ticketNumber` is globally `@unique`, not unique-per-board. That is safe only
+because `ticketPrefix` is itself unique, so exactly one board owns any prefix —
+which is also what makes "bump *that prefix's* counter" in the manual-assignment
+rules well defined. Setting a prefix another board already holds is rejected with
+a conflict error naming that board. A global constraint is also what makes
+"look up by ticket number" a single indexed query.
 
 ## Allocation logic (`src/lib/ticket-number.ts`)
 
@@ -110,13 +116,16 @@ Manual numbers and the counter share a namespace, so they can collide. Rules:
 
 1. A manual number must parse and be unique, else the request is rejected with a
    clear message naming the conflicting task. No silent renumbering.
-2. **When a manual number is accepted, bump that prefix's counter to at least
-   its sequence.** Without this, someone typing `OPS-500` today guarantees a
+2. **When a manual number is accepted, bump the owning counter to at least its
+   sequence.** Without this, someone typing `OPS-500` today guarantees a
    unique-violation failure when the counter eventually reaches 500 — a bug that
-   would surface months later with no obvious cause.
-3. Manual numbers may use any prefix, including one no board owns. Enforcing
-   prefix ownership would block the main use case (importing an ID from another
-   system).
+   would surface months later with no obvious cause. "The owning counter" is
+   unambiguous because `ticketPrefix` is unique: it is the board holding that
+   prefix, or the global counter if the prefix is the global one.
+3. Manual numbers may use a prefix no board owns (e.g. an ID imported from
+   another system). Those have no counter to bump, and rule 2 does not apply —
+   the global `@unique` on `ticketNumber` is what keeps them safe. Enforcing
+   prefix ownership would block that use case.
 4. Clearing a manual number reverts the task to unnumbered; it is not
    re-allocated automatically, to avoid surprising renumbering.
 
@@ -127,8 +136,13 @@ A script, not a migration — it is long-running and must be resumable:
 - Board tasks: group by `boardId`, order by `createdAt`, assign sequentially.
 - Board-less tasks: order by `createdAt`, assign from the global prefix.
 - Boards with no `ticketPrefix` set: derive a candidate from the board name
-  (first 3 alphanumerics, uppercased), deduplicated with a numeric suffix. A
-  wrong-but-editable prefix beats leaving those tasks unnumbered.
+  (first 3 alphanumerics, uppercased), deduplicated with a numeric suffix against
+  prefixes already taken. A wrong-but-editable prefix beats leaving those tasks
+  unnumbered. **Write the derived prefix back to `KanbanBoard.ticketPrefix`** —
+  without that, runtime allocation for those boards falls back to the global
+  prefix and the next task lands as `TMS-1` beside siblings numbered `OPS-n`.
+- Set every board's `ticketCounter` (and the global counter) to the highest
+  sequence it issued, so the first new task continues the series.
 - Idempotent: skip any task that already has a `ticketNumber`.
 
 ## API
