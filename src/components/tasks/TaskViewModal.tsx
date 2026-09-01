@@ -33,8 +33,7 @@ import {
   User, Users, Handshake, Clock, MessageSquare, Send, Edit, Copy,
   Heart, ThumbsUp, Smile, Reply, Image, Paperclip, MoreHorizontal,
   AtSign, Trash2, Pencil, X, Check, FileText, Download, File,
-  Plus, ListTodo, ChevronRight, ChevronLeft, CheckCircle2, Circle, AlertCircle, RefreshCw, RotateCcw, Eye, GitBranch, Lock, Repeat, FolderInput
-} from 'lucide-react'
+  Plus, ListTodo, ChevronRight, ChevronLeft, CheckCircle2, Circle, AlertCircle, RefreshCw, RotateCcw, Eye, GitBranch, Lock, Repeat, FolderInput, Loader2 } from 'lucide-react'
 import { isImageAttachment, isPreviewable } from '@/lib/attachment-preview'
 import { useSession } from 'next-auth/react'
 import { Progress } from '@/components/ui/progress'
@@ -51,6 +50,8 @@ interface Task {
   startDate?: string
   status: 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'COMPLETED'
   ticketNumber?: string | null
+  assignedRoleId?: string | null
+  assignedRole?: { id: string; name: string; color: string } | null
   progressPercentage: number
   taskType: 'INDIVIDUAL' | 'TEAM' | 'COLLABORATION' | 'CASCADING'
   // Google Calendar fields
@@ -427,6 +428,7 @@ export default function TaskViewModal({
   // from its default endpoint, so the file has to be rendered in-app rather than
   // opened by URL.
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string; type: string | null } | null>(null)
+  const [claiming, setClaiming] = useState(false)
   const [recurringSettings, setRecurringSettings] = useState<{
     id: string
     recurringFrequency: string | null
@@ -2062,6 +2064,42 @@ export default function TaskViewModal({
                   {task.ticketNumber}
                   <Copy className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-60" />
                 </button>
+              )}
+              {/* Addressed to a role and not yet taken. The server checks the
+                  caller actually holds the role, so showing this to everyone is
+                  safe — the button simply fails for anyone who doesn't. */}
+              {task.assignedRole && !task.assignee && (
+                <div className="flex items-center gap-2 rounded-md border border-dashed px-2.5 py-1.5">
+                  <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: task.assignedRole.color }} />
+                  <span className="text-xs text-muted-foreground">
+                    Waiting on <span className="font-medium text-foreground">{task.assignedRole.name}</span>
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-[11px] ml-auto"
+                    disabled={claiming}
+                    onClick={async () => {
+                      setClaiming(true)
+                      try {
+                        const res = await fetch(`/api/tasks/${task.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ claim: true }),
+                        })
+                        if (res.ok) {
+                          toast({ title: 'Task claimed', description: 'It is assigned to you now.' })
+                          onTaskUpdate?.()
+                        } else {
+                          const err = await res.json().catch(() => ({}))
+                          toast({ title: 'Could not claim', description: err.error, variant: 'destructive' })
+                        }
+                      } finally { setClaiming(false) }
+                    }}
+                  >
+                    {claiming ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Claim'}
+                  </Button>
+                </div>
               )}
               <div className="flex items-start gap-2 min-w-0">
                 <span className="flex-shrink-0 mt-1">{getTaskTypeIcon(task.taskType)}</span>

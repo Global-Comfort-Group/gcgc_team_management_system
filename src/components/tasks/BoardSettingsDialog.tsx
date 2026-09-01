@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -19,7 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
-import { Plus, Trash2, ChevronUp, ChevronDown, Loader2, Copy, ExternalLink } from 'lucide-react'
+import { Plus, Trash2, ChevronUp, ChevronDown, Loader2, Copy, ExternalLink, X } from 'lucide-react'
 
 type Category = 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'COMPLETED' | 'CANCELLED'
 type FieldType = 'TEXT' | 'NUMBER' | 'DATE' | 'SELECT'
@@ -90,7 +91,7 @@ async function call(url: string, method: string, body?: any) {
 
 export default function BoardSettingsDialog({ boardId, boardName, statuses, fields, members, open, onOpenChange, onChanged }: Props) {
   const { toast } = useToast()
-  const [tab, setTab] = useState<'statuses' | 'fields' | 'forms' | 'reviewers'>('statuses')
+  const [tab, setTab] = useState<'statuses' | 'fields' | 'forms' | 'reviewers' | 'roles' | 'template'>('statuses')
   const [busy, setBusy] = useState(false)
 
   // Intake forms (fetched when the Forms tab opens)
@@ -109,6 +110,124 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
   const [reviewersLoaded, setReviewersLoaded] = useState(false)
   const [newReviewer, setNewReviewer] = useState('')
 
+  // Board roles. A role grants permissions on this board only, and can only
+  // ADD to what someone can already do — see src/lib/board-roles.ts.
+  type RoleHolder = { id: string; name?: string | null; email: string }
+  type BoardRoleRow = {
+    id: string; name: string; color: string
+    canCreateTask: boolean; canEditAnyTask: boolean; canDeleteTask: boolean
+    canChangeStatus: boolean; canApprove: boolean; canManageBoard: boolean
+    assignments: Array<{ id: string; user: RoleHolder }>
+  }
+  const [roles, setRoles] = useState<BoardRoleRow[]>([])
+  const [rolesLoaded, setRolesLoaded] = useState(false)
+  const [canManageRoles, setCanManageRoles] = useState(false)
+  const [newRoleName, setNewRoleName] = useState('')
+  const [addingTo, setAddingTo] = useState<string | null>(null)
+  const [newHolder, setNewHolder] = useState('')
+
+  const loadRoles = async () => {
+    try {
+      const res = await fetch(`/api/boards/${boardId}/roles`)
+      if (res.ok) {
+        const d = await res.json()
+        setRoles(d.roles || [])
+        setCanManageRoles(!!d.permissions?.canManageBoard)
+        setRolesLoaded(true)
+      }
+    } catch { /* ignore */ }
+  }
+
+  const PERMS: Array<{ key: keyof BoardRoleRow; label: string; hint: string }> = [
+    { key: 'canCreateTask',   label: 'Create tasks',    hint: 'Add new tasks to this board' },
+    { key: 'canEditAnyTask',  label: 'Edit any task',   hint: 'Not just their own' },
+    { key: 'canChangeStatus', label: 'Change status',   hint: 'Move cards between columns' },
+    { key: 'canDeleteTask',   label: 'Delete tasks',    hint: 'Remove tasks from this board' },
+    { key: 'canApprove',      label: 'Approve work',    hint: 'Act as a reviewer here' },
+    { key: 'canManageBoard',  label: 'Manage board',    hint: 'Settings, columns and roles' },
+  ]
+
+  const addRole = () => guard(async () => {
+    const res = await fetch(`/api/boards/${boardId}/roles`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newRoleName.trim() }),
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({} as any))).error || 'Failed to add role')
+    setNewRoleName('')
+    await loadRoles()
+  }, 'Could not add role')
+
+  const patchRole = (roleId: string, body: any) => guard(async () => {
+    const res = await fetch(`/api/boards/${boardId}/roles/${roleId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({} as any))).error || 'Failed to update role')
+    await loadRoles()
+  }, 'Could not update role')
+
+  const deleteRole = (roleId: string) => guard(async () => {
+    const res = await fetch(`/api/boards/${boardId}/roles/${roleId}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({} as any))).error || 'Failed to delete role')
+    await loadRoles()
+  }, 'Could not delete role')
+
+  const addHolder = (roleId: string) => guard(async () => {
+    const res = await fetch(`/api/boards/${boardId}/roles/${roleId}/members`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: newHolder }),
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({} as any))).error || 'Failed to assign role')
+    setNewHolder(''); setAddingTo(null)
+    await loadRoles()
+  }, 'Could not assign role')
+
+  const removeHolder = (roleId: string, userId: string) => guard(async () => {
+    const res = await fetch(`/api/boards/${boardId}/roles/${roleId}/members?userId=${encodeURIComponent(userId)}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({} as any))).error || 'Failed to remove')
+    await loadRoles()
+  }, 'Could not remove from role')
+
+  // Per-board defaults for new tasks. Defaults only — the create form leaves
+  // every value editable.
+  type Template = {
+    titlePrefix?: string | null; description?: string | null
+    priority?: string | null; taskWeight?: number | null; slaHours?: number | null
+    defaultRoleId?: string | null; checklist?: Array<{ title: string }> | null
+  }
+  const [template, setTemplate] = useState<Template>({})
+  const [templateLoaded, setTemplateLoaded] = useState(false)
+  const [checklistText, setChecklistText] = useState('')
+
+  const loadTemplate = async () => {
+    try {
+      const res = await fetch(`/api/boards/${boardId}/template`)
+      if (res.ok) {
+        const d = await res.json()
+        const t = d.template || {}
+        setTemplate(t)
+        setChecklistText((t.checklist || []).map((c: any) => c.title).join('\n'))
+        setTemplateLoaded(true)
+      }
+    } catch { /* ignore */ }
+  }
+
+  const saveTemplate = () => guard(async () => {
+    const checklist = checklistText.split('\n').map(l => l.trim()).filter(Boolean).map(title => ({ title }))
+    const res = await fetch(`/api/boards/${boardId}/template`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...template, checklist: checklist.length ? checklist : null }),
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({} as any))).error || 'Failed to save')
+    await loadTemplate()
+    toast({ title: 'Template saved' })
+  }, 'Could not save template')
+
+  const clearTemplate = () => guard(async () => {
+    const res = await fetch(`/api/boards/${boardId}/template`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('Failed to clear')
+    setTemplate({}); setChecklistText('')
+    await loadTemplate()
+  }, 'Could not clear template')
+
   const loadForms = async () => {
     try {
       const res = await fetch(`/api/boards/${boardId}/forms`)
@@ -124,7 +243,9 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
   useEffect(() => {
     if (open && tab === 'forms' && !formsLoaded) loadForms()
     if (open && tab === 'reviewers' && !reviewersLoaded) loadReviewers()
-    if (!open) { setFormsLoaded(false); setReviewersLoaded(false) }
+    if (open && tab === 'roles' && !rolesLoaded) { loadRoles(); if (!reviewersLoaded) loadReviewers() }
+    if (open && tab === 'template' && !templateLoaded) { loadTemplate(); if (!rolesLoaded) loadRoles() }
+    if (!open) { setFormsLoaded(false); setReviewersLoaded(false); setRolesLoaded(false); setTemplateLoaded(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, tab])
 
@@ -260,7 +381,7 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
         </div>
 
         <div className="inline-flex items-center gap-1 rounded-md border p-0.5 self-start">
-          {(['statuses', 'fields', 'forms', 'reviewers'] as const).map((t) => (
+          {(['statuses', 'fields', 'forms', 'reviewers', 'roles', 'template'] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-3 h-7 rounded text-xs font-semibold capitalize ${tab === t ? 'bg-blue-600 text-white' : 'text-slate-600 hover:text-slate-900'}`}>
               {t}
@@ -390,7 +511,7 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
               <p className="text-[11px] text-muted-foreground">Anyone with the link can submit (no login). The form asks for the submitter’s name + email and your board’s custom fields, then creates a task here.</p>
             </div>
           </>
-        ) : (
+        ) : tab === 'reviewers' ? (
           <>
             <div className="space-y-2 max-h-[44vh] overflow-y-auto pr-1">
               {!reviewersLoaded && <p className="text-xs text-muted-foreground py-2">Loading…</p>}
@@ -424,6 +545,196 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
                 <Button onClick={addReviewer} disabled={!newReviewer || busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}</Button>
               </div>
               <p className="text-[11px] text-muted-foreground">Reviewers approve and rate work on this board. When a task is moved to In Review, one of them is assigned to review it — the worker can’t rate their own task.</p>
+            </div>
+          </>
+        ) : tab === 'roles' ? (
+          <>
+            <div className="space-y-3 max-h-[44vh] overflow-y-auto pr-1">
+              {!rolesLoaded && <p className="text-xs text-muted-foreground py-2">Loading…</p>}
+
+              {rolesLoaded && !canManageRoles && (
+                <p className="text-xs text-muted-foreground py-2">You can see this board’s roles but not change them.</p>
+              )}
+
+              {rolesLoaded && roles.length === 0 && (
+                <p className="text-xs text-muted-foreground py-2">
+                  No roles yet. A role is a job on this board — Designer, QA, Approver — that you can give people
+                  and address tasks to. Roles only ever <em>add</em> to what someone can already do.
+                </p>
+              )}
+
+              {roles.map((r) => (
+                <div key={r.id} className="rounded-md border p-3 space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: r.color }} />
+                    <Input
+                      defaultValue={r.name}
+                      disabled={!canManageRoles || busy}
+                      onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== r.name) patchRole(r.id, { name: v }) }}
+                      className="h-8 flex-1 font-medium"
+                    />
+                    {canManageRoles && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700 shrink-0"
+                        disabled={busy} onClick={() => deleteRole(r.id)}><Trash2 className="h-4 w-4" /></Button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                    {PERMS.map((perm) => (
+                      <label key={String(perm.key)} className="flex items-start gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 mt-0.5 shrink-0"
+                          disabled={!canManageRoles || busy}
+                          checked={!!r[perm.key]}
+                          onChange={(e) => patchRole(r.id, { [perm.key]: e.target.checked })}
+                        />
+                        <span className="min-w-0">
+                          <span className="block leading-tight">{perm.label}</span>
+                          <span className="block text-[10px] text-muted-foreground leading-tight">{perm.hint}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t">
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground mr-1">Holders</span>
+                    {r.assignments.length === 0 && (
+                      <span className="text-[11px] text-amber-600">none yet — tasks can’t be addressed to this role</span>
+                    )}
+                    {r.assignments.map((a) => (
+                      <span key={a.id} className="inline-flex items-center gap-1 rounded-full border bg-slate-50 pl-2 pr-1 py-0.5 text-[11px]">
+                        {a.user.name || a.user.email}
+                        {canManageRoles && (
+                          <button type="button" disabled={busy} onClick={() => removeHolder(r.id, a.user.id)}
+                            className="text-slate-400 hover:text-red-600"><X className="h-3 w-3" /></button>
+                        )}
+                      </span>
+                    ))}
+                    {canManageRoles && (addingTo === r.id ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Select value={newHolder} onValueChange={setNewHolder}>
+                          <SelectTrigger className="h-7 w-44 text-xs"><SelectValue placeholder="Pick a person" /></SelectTrigger>
+                          <SelectContent>
+                            {reviewerCandidates.length === 0
+                              ? <div className="px-2 py-1.5 text-xs text-muted-foreground">No one available</div>
+                              : reviewerCandidates.map((c) => <SelectItem key={c.id} value={c.id}>{c.name || c.email}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <Button size="sm" className="h-7" disabled={!newHolder || busy} onClick={() => addHolder(r.id)}>Add</Button>
+                        <Button size="sm" variant="ghost" className="h-7" onClick={() => { setAddingTo(null); setNewHolder('') }}>Cancel</Button>
+                      </span>
+                    ) : (
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]"
+                        onClick={() => { setAddingTo(r.id); setNewHolder('') }}>
+                        <Plus className="h-3 w-3 mr-1" />Add
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {canManageRoles && (
+              <div className="space-y-2 border-t pt-3">
+                <div className="flex items-center gap-2">
+                  <Input placeholder="New role name, e.g. QA" value={newRoleName} maxLength={40}
+                    onChange={(e) => setNewRoleName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && newRoleName.trim()) addRole() }}
+                    className="h-9 flex-1" />
+                  <Button onClick={addRole} disabled={!newRoleName.trim() || busy}>
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  New roles start with no permissions — tick only what the role should add. Board leaders and admins
+                  keep full control regardless, and the board can’t be left with nobody able to manage it.
+                </p>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="space-y-3 max-h-[46vh] overflow-y-auto pr-1">
+              {!templateLoaded && <p className="text-xs text-muted-foreground py-2">Loading…</p>}
+              {templateLoaded && (
+                <>
+                  <p className="text-[11px] text-muted-foreground">
+                    Defaults for new tasks on this board. Everything here is pre-filled into the create form and
+                    stays editable — nothing is enforced.
+                  </p>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Title starts with</Label>
+                    <Input className="h-8" placeholder="e.g. [Housekeeping]" maxLength={60}
+                      value={template.titlePrefix ?? ''}
+                      onChange={(e) => setTemplate({ ...template, titlePrefix: e.target.value })} />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Description</Label>
+                    <Textarea rows={3} placeholder="Boilerplate every task on this board should start from"
+                      value={template.description ?? ''}
+                      onChange={(e) => setTemplate({ ...template, description: e.target.value })} />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Priority</Label>
+                      <Select value={template.priority ?? 'none'}
+                        onValueChange={(v) => setTemplate({ ...template, priority: v === 'none' ? null : v })}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No default</SelectItem>
+                          {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Weight (1–5)</Label>
+                      <Input className="h-8" type="number" min={1} max={5} value={template.taskWeight ?? ''}
+                        onChange={(e) => setTemplate({ ...template, taskWeight: e.target.value ? Number(e.target.value) : null })} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">SLA (hours)</Label>
+                      <Input className="h-8" type="number" min={1} value={template.slaHours ?? ''}
+                        onChange={(e) => setTemplate({ ...template, slaHours: e.target.value ? Number(e.target.value) : null })} />
+                    </div>
+                  </div>
+
+                  {roles.length > 0 && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Assign to role by default</Label>
+                      <Select value={template.defaultRoleId ?? 'none'}
+                        onValueChange={(v) => setTemplate({ ...template, defaultRoleId: v === 'none' ? null : v })}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No default</SelectItem>
+                          {roles.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Checklist — one subtask per line</Label>
+                    <Textarea rows={4} placeholder={'Check the room\nRestock supplies\nSign off'}
+                      value={checklistText} onChange={(e) => setChecklistText(e.target.value)} />
+                    <p className="text-[10px] text-muted-foreground">
+                      These are added as subtasks on every new task, unassigned.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 border-t pt-3">
+              <Button onClick={saveTemplate} disabled={busy}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save template'}
+              </Button>
+              <Button variant="ghost" onClick={clearTemplate} disabled={busy} className="text-red-600 hover:text-red-700">
+                Clear
+              </Button>
             </div>
           </>
         )}

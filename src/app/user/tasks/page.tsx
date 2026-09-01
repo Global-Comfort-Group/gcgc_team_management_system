@@ -109,6 +109,8 @@ interface Task {
   leaderEvaluatedAt?: string | null
   status: 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'COMPLETED'
   ticketNumber?: string | null
+  assignedRoleId?: string | null
+  assignedRole?: { id: string; name: string; color: string } | null
   customStatusId?: string | null
   progressPercentage: number
   taskType: 'INDIVIDUAL' | 'TEAM' | 'COLLABORATION' | 'CASCADING'
@@ -1842,6 +1844,16 @@ export default function TasksPage() {
                                     <h4 className="font-semibold text-sm leading-snug text-gray-900 line-clamp-2">
                                       {task.title}
                                     </h4>
+                                    {/* Addressed to a role but nobody has taken it yet. Once
+                                        someone claims it the assignee avatar says who has it. */}
+                                    {task.assignedRole && !task.assignee && (
+                                      <span
+                                        className="inline-flex items-center gap-1 mt-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
+                                        style={{ borderColor: task.assignedRole.color, color: task.assignedRole.color }}
+                                      >
+                                        Unclaimed · {task.assignedRole.name}
+                                      </span>
+                                    )}
                                   </div>
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>

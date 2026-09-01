@@ -163,6 +163,9 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
   const [cascadeSteps, setCascadeSteps] = useState<CascadeStep[]>([])
   // Optional manual ticket number. Blank => the server allocates the next one.
   const [manualTicket, setManualTicket] = useState('')
+  // Board roles a task can be addressed to. Only meaningful on a board.
+  const [boardRoles, setBoardRoles] = useState<Array<{ id: string; name: string; color: string; assignments: any[] }>>([])
+  const [assignedRoleId, setAssignedRoleId] = useState('')
 
   // Per-board custom field values (fieldId -> value)
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({})
@@ -228,6 +231,43 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
       fetchUsers()
     }
   }, [open, showAllUsers, boardContext?.teamId])
+
+  // Board roles, for the "Assign to role" picker. Only boards have roles, so
+  // this is skipped entirely for a board-less task.
+  useEffect(() => {
+    if (!open || !boardContext?.boardId) { setBoardRoles([]); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/boards/${boardContext.boardId}/roles`)
+        if (res.ok && !cancelled) setBoardRoles((await res.json()).roles || [])
+      } catch { /* a missing role list should never block task creation */ }
+
+      // Board task template. Applied ONLY when creating — editing an existing
+      // task must never have its content quietly replaced by a default. Every
+      // value stays editable; these are defaults, not constraints.
+      if (task || duplicateFrom) return
+      try {
+        const res = await fetch(`/api/boards/${boardContext.boardId}/template`)
+        if (!res.ok || cancelled) return
+        const tpl = (await res.json()).template
+        if (!tpl || cancelled) return
+
+        if (tpl.titlePrefix && !form.getValues('title')) form.setValue('title', tpl.titlePrefix)
+        if (tpl.description && !form.getValues('description')) form.setValue('description', tpl.description)
+        if (tpl.priority) form.setValue('priority', tpl.priority)
+        if (tpl.taskWeight) form.setValue('taskWeight', tpl.taskWeight)
+        if (tpl.slaHours) form.setValue('slaHours', tpl.slaHours)
+        if (tpl.defaultRoleId) setAssignedRoleId(tpl.defaultRoleId)
+        if (Array.isArray(tpl.checklist) && tpl.checklist.length > 0) {
+          setPendingSubtasks(tpl.checklist.map((c: any, i: number) => ({
+            id: `tpl-${i}`, title: String(c.title), assigneeId: '', dueDate: undefined,
+          })))
+        }
+      } catch { /* a missing template should never block task creation */ }
+    })()
+    return () => { cancelled = true }
+  }, [open, boardContext?.boardId, task, duplicateFrom])
 
   // Initialize form when dialog opens - ONLY ONCE per open (when transitioning from closed to open)
   useEffect(() => {
@@ -353,6 +393,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
         setCascadeSteps(duplicatedChildren.cascadeSteps)
         setNewSubtaskTitle('')
         setManualTicket('')
+        setAssignedRoleId('')
         setNewSubtaskAssigneeId('')
         setNewSubtaskDeadline('')
       } else {
@@ -629,6 +670,8 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
         }
       }
 
+      if (assignedRoleId) (submissionData as any).assignedRoleId = assignedRoleId
+
       // Only send a manual ticket number when one was typed; otherwise the
       // server allocates.
       if (!task && manualTicket.trim()) {
@@ -858,6 +901,41 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
                   </p>
                 )}
               </div>
+
+              {/* Address the task to a role instead of a person. Showing the
+                  holder count matters: a role with none cannot take work, and
+                  the server rejects it — better to see that before submitting. */}
+              {boardRoles.length > 0 && (
+                <div className="space-y-2">
+                  <Label htmlFor="assignedRole" className="text-base">
+                    Assign to Role <span className="text-muted-foreground font-normal text-sm">(optional)</span>
+                  </Label>
+                  <Select value={assignedRoleId || 'none'} onValueChange={(v) => setAssignedRoleId(v === 'none' ? '' : v)}>
+                    <SelectTrigger id="assignedRole" className="h-11">
+                      <SelectValue placeholder="Assign to a person instead" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Assign to a person instead</SelectItem>
+                      {boardRoles.map(r => (
+                        <SelectItem key={r.id} value={r.id} disabled={(r.assignments?.length ?? 0) === 0}>
+                          <span className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: r.color }} />
+                            {r.name}
+                            <span className="text-xs text-muted-foreground">
+                              {(r.assignments?.length ?? 0) === 0
+                                ? '· nobody holds this yet'
+                                : `· ${r.assignments.length} ${r.assignments.length === 1 ? 'person' : 'people'}`}
+                            </span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    One holder is assigned straight away. Several leaves it unclaimed for any of them to take.
+                  </p>
+                </div>
+              )}
 
               {/* Manual ticket number — create only. Editing an existing
                   task's number is supported by the API but has no UI yet; the

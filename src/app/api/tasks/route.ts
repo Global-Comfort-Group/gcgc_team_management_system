@@ -379,6 +379,8 @@ export async function GET(req: NextRequest) {
       prisma.task.findMany({
         where,
         include: {
+          // Needed for the "Unclaimed · QA" chip on the card.
+          assignedRole: { select: { id: true, name: true, color: true } },
           assignee: {
             select: { 
               id: true, 
