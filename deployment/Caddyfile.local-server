@@ -1,0 +1,50 @@
+# Caddyfile for the local production box (10.100.100.86).
+#
+# APPLY BY: copying to /opt/gcgc-tms/Caddyfile, then
+#   sudo podman restart gcgc-tms_caddy_1
+# Not applied yet — it needs someone on the GCGC network.
+#
+# ── The problem this fixes ─────────────────────────────────────────────────
+# The current Caddyfile serves ONLY the hostname `tms.local`:
+#
+#   { auto_https disable_redirects }
+#   tms.local { tls internal; reverse_proxy app:3000 }
+#
+# Caddy therefore listens on 443 only, and answers only to that SNI/Host. So:
+#   http://10.100.100.86/       -> nothing listening on :80        (connection fails)
+#   https://10.100.100.86/      -> no matching site for the IP     (connection fails)
+#   https://tms.local/          -> WORKS, but `tms.local` is NXDOMAIN on the
+#                                  network, so nobody can actually use it
+#
+# The only usable address is http://10.100.100.86:3000, published directly by
+# the app container. That is why users must remember a port number, and it is
+# the reachability half of the "TMS can only be used on the GCGC network"
+# report — the other half is the LAN itself, which is not a Caddy problem.
+#
+# ── What this changes ──────────────────────────────────────────────────────
+# Adds a catch-all HTTP site so the bare IP works on port 80. `http://` on a
+# site address tells Caddy to serve plain HTTP and not attempt a certificate —
+# essential here, because a publicly-trusted cert cannot be issued for a private
+# IP, and that is exactly why bare-IP HTTPS fails today.
+#
+# `tms.local` is kept unchanged, so the moment an internal DNS record (or the
+# tms.hotelsogo.com decision) exists, HTTPS works with no further edits.
+#
+# Port 3000 stays published by the app container regardless, so the current
+# address keeps working and this change cannot cut anyone off.
+
+{
+	auto_https disable_redirects
+}
+
+# Named host — already works, waiting on DNS.
+tms.local {
+	tls internal
+	reverse_proxy app:3000
+}
+
+# Catch-all over plain HTTP: makes http://10.100.100.86/ work without DNS and
+# without a port. `http://` prevents Caddy trying to get a certificate for it.
+http:// {
+	reverse_proxy app:3000
+}

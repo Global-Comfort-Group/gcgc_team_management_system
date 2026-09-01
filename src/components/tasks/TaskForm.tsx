@@ -869,7 +869,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="z-[100] flex flex-col gap-0 p-0 sm:p-0 overflow-hidden w-screen max-w-none h-[100dvh] sm:w-auto sm:max-w-4xl sm:h-auto sm:max-h-[90vh]">
+      <DialogContent padded={false} className="z-[100] flex flex-col gap-0 overflow-hidden w-screen max-w-none h-[100dvh] sm:w-auto sm:max-w-4xl sm:h-auto sm:max-h-[90vh]">
         <DialogHeader className="sticky top-0 z-10 bg-background border-b px-6 pr-14 pt-6 pb-4">
           <DialogTitle>{task ? 'Edit Task' : duplicateFrom ? 'Duplicate Task' : 'Create New Task'}</DialogTitle>
           <DialogDescription>

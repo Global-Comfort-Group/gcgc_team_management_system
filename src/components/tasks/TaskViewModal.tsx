@@ -427,7 +427,7 @@ export default function TaskViewModal({
   // Task attachment preview. Same reason as previewImage above: OSS force-downloads
   // from its default endpoint, so the file has to be rendered in-app rather than
   // opened by URL.
-  const [previewFile, setPreviewFile] = useState<{ url: string; name: string; type: string | null } | null>(null)
+  const [previewFile, setPreviewFile] = useState<{ id: string; url: string; name: string; type: string | null } | null>(null)
   const [claiming, setClaiming] = useState(false)
   const [recurringSettings, setRecurringSettings] = useState<{
     id: string
@@ -3128,7 +3128,7 @@ export default function TaskViewModal({
                     {isPreviewable(a.fileType, a.fileName) ? (
                       <button
                         type="button"
-                        onClick={() => setPreviewFile({ url: a.fileUrl, name: a.fileName, type: a.fileType ?? null })}
+                        onClick={() => setPreviewFile({ id: a.id, url: a.fileUrl, name: a.fileName, type: a.fileType ?? null })}
                         className="flex-1 truncate text-left text-blue-600 hover:underline"
                         title={`Preview ${a.fileName}`}
                       >
@@ -3510,7 +3510,7 @@ export default function TaskViewModal({
           {/* Full-size image preview (lightbox). Renders the image in-app so it
               previews instead of force-downloading from the OSS default endpoint. */}
           <Dialog open={!!previewImage} onOpenChange={(o) => { if (!o) setPreviewImage(null) }}>
-            <DialogContent className="max-w-5xl w-fit bg-transparent border-0 shadow-none p-0 sm:p-0">
+            <DialogContent padded={false} className="max-w-5xl w-fit bg-transparent border-0 shadow-none">
               <DialogTitle className="sr-only">Image preview</DialogTitle>
               {previewImage && (
                 <img
@@ -3527,15 +3527,23 @@ export default function TaskViewModal({
               footer keeps a real download and a new-tab escape hatch for
               anything the browser declines to render. */}
           <Dialog open={!!previewFile} onOpenChange={(o) => { if (!o) setPreviewFile(null) }}>
-            <DialogContent className="max-w-5xl w-[95vw] p-0 sm:p-0 gap-0 overflow-hidden">
+            <DialogContent padded={false} className="max-w-5xl w-[95vw] gap-0 overflow-hidden">
               <DialogHeader className="px-4 pr-14 py-3 border-b">
                 <DialogTitle className="truncate text-sm font-medium">{previewFile?.name}</DialogTitle>
               </DialogHeader>
               <div className="bg-slate-50 flex items-center justify-center min-h-[50vh] max-h-[75vh] overflow-auto">
                 {previewFile && isImageAttachment(previewFile.type, previewFile.name) ? (
                   <img src={previewFile.url} alt={previewFile.name} className="max-h-[75vh] w-auto max-w-full object-contain" />
-                ) : previewFile ? (
-                  <iframe src={previewFile.url} title={previewFile.name} className="w-full h-[75vh] border-0 bg-white" />
+                ) : previewFile && task ? (
+                  // Through the proxy, not the OSS URL: OSS sends
+                  // Content-Disposition: attachment, which an iframe honours by
+                  // downloading. An <img> ignores that header, so images above
+                  // still use the direct URL and skip the round trip.
+                  <iframe
+                    src={`/api/tasks/${task.id}/attachments/${previewFile.id}/raw`}
+                    title={previewFile.name}
+                    className="w-full h-[75vh] border-0 bg-white"
+                  />
                 ) : null}
               </div>
               <div className="flex items-center justify-end gap-2 px-4 py-3 border-t">
