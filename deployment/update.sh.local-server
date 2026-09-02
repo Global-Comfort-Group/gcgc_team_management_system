@@ -1,0 +1,186 @@
+#!/bin/bash
+# =============================================================================
+# GCGC TMS — One-line Update Script
+# Usage:  sudo bash /opt/gcgc-tms/update.sh
+#
+# What it does:
+#   1. Backs up the database (pg_dump, stored in 2 locations)
+#   2. git pull origin main  (pulls latest code from GitHub)
+#   3. Verifies .env is preserved
+#   4. Rebuilds the app container image
+#   5. Restarts the podman stack (down + up, NEVER -v, DB volume preserved)
+#   6. Verifies containers, HTTP health, and DB row counts
+# =============================================================================
+set -euo pipefail
+
+PROJECT_DIR="/opt/gcgc-tms"
+DB_CONTAINER="gcgc-tms_db_1"
+DB_USER="gcgc"
+DB_NAME="gcgc_tms_production_db"
+BACKUP_DIR="$PROJECT_DIR/backups"
+PGDATA_VOL="gcgc-tms_pgdata"   # compose project prefix + volume name
+
+cd "$PROJECT_DIR"
+
+# --- ensure running as root -------------------------------------------------
+if [ "$(id -u)" -ne 0 ]; then
+  echo "ERROR: This script must be run as root. Use: sudo bash $0"
+  exit 1
+fi
+
+# Preserve real user home so SSH config and keys are found
+export HOME="${SUDO_HOME:-/home/${SUDO_USER:-aidev}}"
+
+echo ""
+echo "================================================================"
+echo "  GCGC TMS Update  —  $(date '+%Y-%m-%d %H:%M:%S')"
+echo "================================================================"
+
+# --- step 1: database backup ------------------------------------------------
+echo ""
+echo "[1/6] Backing up database..."
+TS=$(date +%Y-%m-%d_%H%M%S)
+BACKUP_FILE="$BACKUP_DIR/gcgc_tms_production_db-${TS}.dump"
+
+# Create backup dir if missing
+mkdir -p "$BACKUP_DIR"
+
+# Run pg_dump and capture output directly to file
+podman exec "$DB_CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc --no-owner --no-acl > "$BACKUP_FILE"
+BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+echo "  Backup saved: $BACKUP_FILE ($BACKUP_SIZE)"
+
+# Extra-safe copy outside the project directory (use SUDO_USER's home)
+REAL_USER="${SUDO_USER:-aidev}"
+REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
+mkdir -p "$REAL_HOME/db-backups"
+cp "$BACKUP_FILE" "$REAL_HOME/db-backups/"
+chown "$REAL_USER:$REAL_USER" "$REAL_HOME/db-backups/$(basename "$BACKUP_FILE")"
+echo "  Extra copy:   $REAL_HOME/db-backups/$(basename "$BACKUP_FILE")"
+
+# Verify backup is valid (pg_restore --list exits 0 if readable)
+if ! podman exec -i "$DB_CONTAINER" pg_restore --list < "$BACKUP_FILE" >/dev/null 2>&1; then
+  echo "  ERROR: Backup verification failed! Aborting update."
+  exit 1
+fi
+echo "  Backup verified OK (pg_restore can read it)"
+
+# --- step 2: git pull -------------------------------------------------------
+echo ""
+echo "[2/6] Pulling latest code from GitHub..."
+
+# Run git as the repo's OWNER, never as root. This script runs under sudo, and a
+# root `git pull` leaves root-owned objects in .git/objects. Every later git
+# command as aidev then fails with:
+#   error: insufficient permission for adding an object to repository database
+#   fatal: unpack-objects failed
+# which impersonates a corrupt repo or a full disk and is neither. (Hit
+# 2026-09-02: 201 root-owned vs 16 aidev-owned object dirs.)
+# -H gives git the owner's HOME so it finds their SSH key for the remote.
+GIT_USER="${SUDO_USER:-aidev}"
+run_git() { sudo -u "$GIT_USER" -H git "$@"; }
+
+# Heal any ownership already drifted from previous root pulls. Root can write to
+# owner-owned paths, so this only ever widens access.
+chown -R "$GIT_USER":"$GIT_USER" /opt/gcgc-tms/.git 2>/dev/null || true
+
+# Stash any local changes to tracked files (shouldn't happen, but just in case)
+if ! run_git diff --quiet 2>/dev/null || ! run_git diff --cached --quiet 2>/dev/null; then
+  echo "  Local changes detected — stashing..."
+  run_git stash
+fi
+
+run_git pull origin main
+CURRENT_HEAD=$(run_git log --oneline -1)
+echo "  Current HEAD: $CURRENT_HEAD"
+
+# --- step 3: verify .env ----------------------------------------------------
+echo ""
+echo "[3/6] Verifying .env..."
+if [ ! -f "$PROJECT_DIR/.env" ]; then
+  echo "  ERROR: .env missing! Aborting."
+  exit 1
+else
+  echo "  .env OK (preserved)"
+fi
+
+# --- step 4: rebuild app image ----------------------------------------------
+echo ""
+echo "[4/6] Rebuilding app image (this takes a few minutes)..."
+podman-compose build app
+echo "  Image rebuilt successfully"
+
+# --- step 5: restart stack --------------------------------------------------
+echo ""
+echo "[5/6] Restarting podman stack..."
+
+# Safety check: verify pgdata volume exists BEFORE down
+if ! podman volume exists "$PGDATA_VOL"; then
+  echo "  Volume check failed. Volumes currently known to podman:"
+  podman volume ls --format "    {{.Name}}" 2>&1 || echo "    (podman volume ls itself errored)"
+  echo "  ERROR: pgdata volume not found! Aborting to protect database."
+  exit 1
+fi
+echo "  pgdata volume confirmed safe"
+
+# Down (NO -v flag — volumes are preserved)
+podman-compose down
+echo "  Stack stopped (volumes preserved)"
+
+# Verify volume STILL exists after down
+if ! podman volume exists "$PGDATA_VOL"; then
+  echo "  Volume check failed. Volumes currently known to podman:"
+  podman volume ls --format "    {{.Name}}" 2>&1 || echo "    (podman volume ls itself errored)"
+  echo "  WARNING: pgdata volume check after down failed (may be sudo timing issue)."
+  echo "  Volume listing:"
+  podman volume ls
+  echo "  Proceeding with up -d anyway (down without -v does not remove volumes)..."
+else
+  echo "  pgdata volume still intact after down"
+fi
+
+# Up (recreates all containers with the new image)
+podman-compose up -d
+echo "  Stack started"
+
+# Wait for app to boot
+echo "  Waiting for app to start (15s)..."
+sleep 15
+
+# --- step 6: verify ---------------------------------------------------------
+echo ""
+echo "[6/6] Verification..."
+
+echo ""
+echo "  --- Containers ---"
+podman ps --format '  {{.Names}}  {{.Status}}'
+
+echo ""
+echo "  --- HTTP Health ---"
+HTTP_HOME=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/ 2>/dev/null || echo "FAIL")
+HTTP_SIGNIN=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/auth/signin 2>/dev/null || echo "FAIL")
+echo "  Homepage:  $HTTP_HOME"
+echo "  Sign-in:   $HTTP_SIGNIN"
+
+echo ""
+echo "  --- Database Row Counts ---"
+podman exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -c "
+SELECT 'users' AS tbl, count(*) FROM users
+UNION ALL SELECT 'tasks', count(*) FROM tasks
+UNION ALL SELECT 'teams', count(*) FROM teams
+UNION ALL SELECT 'notifications', count(*) FROM notifications
+UNION ALL SELECT '_prisma_migrations', count(*) FROM _prisma_migrations
+ORDER BY 1;
+" 2>/dev/null | sed 's/^/  /'
+
+echo ""
+echo "  --- Backups ---"
+echo "  Project:  $BACKUP_DIR/ ($(ls "$BACKUP_DIR" | wc -l) files)"
+echo "  Safe:     $REAL_HOME/db-backups/ ($(ls "$REAL_HOME/db-backups" | wc -l) files)"
+
+echo ""
+echo "================================================================"
+echo "  UPDATE COMPLETE"
+echo "  HEAD:   $CURRENT_HEAD"
+echo "  Backup: $BACKUP_FILE ($BACKUP_SIZE)"
+echo "================================================================"
