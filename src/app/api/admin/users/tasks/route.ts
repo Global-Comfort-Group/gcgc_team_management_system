@@ -65,8 +65,11 @@ export async function GET(req: NextRequest) {
       taskWhere.assigneeId = assigneeId
     }
 
-    // Apply status filter if provided
-    if (status && status !== 'all') {
+    // Apply status filter if provided. `status` is typed as TaskStatus, so the
+    // old `status !== 'all'` guard could never be false and the "All statuses"
+    // case was unreachable — an 'all' value would have been passed straight to
+    // Prisma as a status. Compare as a string so the sentinel actually works.
+    if (status && String(status) !== 'all') {
       taskWhere.status = status
     }
 

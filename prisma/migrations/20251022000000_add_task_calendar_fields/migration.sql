@@ -1,0 +1,8 @@
+-- Add calendar fields to tasks table
+ALTER TABLE "tasks" 
+ADD COLUMN IF NOT EXISTS "location" TEXT,
+ADD COLUMN IF NOT EXISTS "meetingLink" TEXT,
+ADD COLUMN IF NOT EXISTS "allDay" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN IF NOT EXISTS "recurrence" TEXT,
+ADD COLUMN IF NOT EXISTS "reminders" JSONB;
+

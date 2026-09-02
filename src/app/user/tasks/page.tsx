@@ -623,33 +623,19 @@ export default function TasksPage() {
     // and unmounting the TaskForm dialog (and its in-progress RHF state).
   }, [session?.user?.id, selectedTeam, selectedUser, activeBoardId, dueDateFrom, dueDateTo])
 
-  // Live updates from the server's task-changed broadcast, so a task assigned
-  // or transferred by someone else lands on the board without a reload. The
-  // focus/visibility listeners below stay as the belt-and-braces path.
+  // Live updates from the server's task-changed broadcast, plus refetch on focus
+  // and visibility, plus a poll as fallback — all inside useTaskRefresh, which
+  // holds the callback in a ref so every refresh sees the CURRENT filters.
+  //
+  // A second focus/visibility listener used to live here. Its effect depended
+  // only on [session?.user?.id], so it registered once and captured fetchTasks
+  // from the mount render — when activeBoardId was still null. Selecting a board
+  // updated the state but not that closure, so the next focus refetched with no
+  // board and the view silently reverted to All Tasks while the board stayed
+  // selected and in the URL. It also meant two fetches per focus, and the stale
+  // one usually resolved last. Removed: useTaskRefresh already covers both
+  // events, correctly.
   useTaskRefresh(() => fetchTasks(false))
-
-  // Refetch tasks when page becomes visible (e.g., navigating back from Calendar)
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && session?.user) {
-        fetchTasks(false) // Background refresh without loading spinner
-      }
-    }
-
-    const handleFocus = () => {
-      if (session?.user) {
-        fetchTasks(false) // Background refresh without loading spinner
-      }
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    window.addEventListener('focus', handleFocus)
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      window.removeEventListener('focus', handleFocus)
-    }
-  }, [session?.user?.id])
 
   // Sync filter state to the URL so views are bookmarkable / back-button-friendly.
   // Uses replace (not push) so each keystroke doesn't create a history entry.

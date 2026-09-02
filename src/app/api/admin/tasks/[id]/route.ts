@@ -57,7 +57,10 @@ export async function GET(
         },
         comments: {
           include: {
-            user: {
+            // Comment relates via `author`, not `user`. `user` is not a relation
+            // on Comment, so Prisma threw PrismaClientValidationError on every
+            // call — this endpoint 500'd unconditionally.
+            author: {
               select: {
                 id: true,
                 name: true,
