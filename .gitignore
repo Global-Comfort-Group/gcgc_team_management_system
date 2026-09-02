@@ -43,7 +43,10 @@ deployment/.env.production
 next-env.d.ts
 
 # prisma
-/prisma/migrations/
+# NOTE: migrations are intentionally NOT ignored. They were, and every new one
+# then needed `git add -f` or it silently never reached the server —
+# `prisma migrate deploy` found nothing, the table was never created, and the
+# new endpoints 500'd. Tracking them removes that trap entirely.
 
 # IDE
 .vscode/
