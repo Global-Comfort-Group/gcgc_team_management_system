@@ -138,7 +138,7 @@ const leaderNavItems = [
     icon: UserCheck,
   },
   // { title: 'Workload', href: '/user/workload', icon: BarChart2 },
-  // { title: 'Evaluations', href: '/user/evaluations', icon: Star },
+  { title: 'Evaluations', href: '/user/evaluations', icon: Star },
   {
     title: 'TMS Chat',
     href: process.env.NEXT_PUBLIC_TMS_CHAT_URL || 'https://tms-chat-staging.hotelsogo-ai.com',

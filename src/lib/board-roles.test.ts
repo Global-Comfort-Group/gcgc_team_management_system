@@ -171,14 +171,14 @@ describe('wouldLeaveBoardUnmanageable', () => {
 })
 
 describe('resolveRoleAddressing', () => {
-  it('auto-assigns when exactly one person holds the role', () => {
+  it('assigns the single holder', () => {
     expect(resolveRoleAddressing({ name: 'QA', holderIds: ['u1'] }))
-      .toEqual({ kind: 'assign', userId: 'u1' })
+      .toEqual({ kind: 'assign', userIds: ['u1'] })
   })
 
-  it('leaves the task claimable when several hold the role', () => {
-    expect(resolveRoleAddressing({ name: 'QA', holderIds: ['u1', 'u2'] }))
-      .toEqual({ kind: 'unclaimed' })
+  it('assigns every holder when several hold the role', () => {
+    expect(resolveRoleAddressing({ name: 'QA', holderIds: ['u1', 'u2', 'u1'] }))
+      .toEqual({ kind: 'assign', userIds: ['u1', 'u2'] })
   })
 
   it('rejects an empty role rather than creating invisible work', () => {

@@ -844,7 +844,8 @@ export async function POST(req: NextRequest) {
         governingBoardId = governingBoardId ?? parentTask.boardId ?? parentTask.parent?.boardId ?? null
       }
 
-      const resolveRole = async (roleId: string): Promise<string | null> => {
+      /** Every holder of the role, owner first. Throws if it cannot take work. */
+      const resolveRole = async (roleId: string): Promise<string[]> => {
         const role = await tx.boardRole.findUnique({
           where: { id: roleId },
           select: { name: true, boardId: true, assignments: { select: { userId: true } } },
@@ -857,14 +858,19 @@ export async function POST(req: NextRequest) {
         }
         const outcome = resolveRoleAddressing({ name: role.name, holderIds: role.assignments.map(a => a.userId) })
         if (outcome.kind === 'reject') throw new RoleAddressingError(outcome.reason)
-        return outcome.kind === 'assign' ? outcome.userId : null
+        return outcome.userIds
       }
 
       // Role addressing, same rules as PATCH: one holder is a shortcut so assign
       // them; several leaves it claimable; none would be invisible work and is
       // refused. Resolved here so a create cannot bypass the rule the edit path
       // enforces.
-      const roleAssigneeId: string | null = assignedRoleId ? await resolveRole(assignedRoleId) : null
+      const roleHolderIds: string[] = assignedRoleId ? await resolveRole(assignedRoleId) : []
+      // Several holders make it a team task (a cascading task keeps its type;
+      // its holders still all land in the flat assignee list below).
+      const effectiveTaskType =
+        roleHolderIds.length > 1 && taskType !== 'CASCADING' ? 'TEAM' : taskType
+      const effectiveTeamMemberIds = assignedRoleId ? roleHolderIds.slice(1) : teamMemberIds
 
       // Ticket number. Allocated inside this transaction so two concurrent
       // creates cannot be handed the same number; a manual value is validated
@@ -883,15 +889,14 @@ export async function POST(req: NextRequest) {
           priority,
           status: finalStatus || 'TODO',
           progressPercentage: finalProgress,
-          taskType,
+          taskType: effectiveTaskType,
           isCascading: taskType === 'CASCADING',
           dueDate: finalDueDate,
           startDate: finalStartDate,
-          // A role-addressed task with several holders stays unassigned so one
-          // of them can claim it. Defaulting to the creator here would make it
-          // owned the instant it was created and unclaimable.
+          // A role-addressed task is owned by its first holder — never by the
+          // creator just because they filled in the form.
           assigneeId: assignedRoleId
-            ? roleAssigneeId
+            ? roleHolderIds[0]
             : (assigneeId || session.user.id),
           creatorId: session.user.id,
           teamId: link.teamId, // set when created on a team board
@@ -912,8 +917,8 @@ export async function POST(req: NextRequest) {
       })
 
       // Add team members if this is a team task
-      if (taskType === 'TEAM' && teamMemberIds.length > 0) {
-        const teamMemberData = teamMemberIds.map(userId => ({
+      if (effectiveTaskType === 'TEAM' && effectiveTeamMemberIds.length > 0) {
+        const teamMemberData = effectiveTeamMemberIds.map(userId => ({
           taskId: newTask.id,
           userId,
           role: 'MEMBER' as const, // All are members, current user is the leader by default
@@ -942,7 +947,7 @@ export async function POST(req: NextRequest) {
         tx,
         newTask.id,
         assignedRoleId
-          ? [roleAssigneeId]
+          ? roleHolderIds
           : [assigneeId || session.user.id, ...teamMemberIds, ...collaboratorIds],
       )
       await setTaskFieldValues(tx, newTask.id, fieldValues)
@@ -959,9 +964,10 @@ export async function POST(req: NextRequest) {
         for (let i = 0; i < cascadeSteps.length; i++) {
           const step = cascadeSteps[i]
           const stepOrder = i + 1
-          const stepAssigneeId = step.assignedRoleId
+          const stepHolderIds = step.assignedRoleId
             ? await resolveRole(step.assignedRoleId)
-            : (step.assigneeId || null)
+            : (step.assigneeId ? [step.assigneeId] : [])
+          const stepAssigneeId = stepHolderIds[0] ?? null
           const cascadeStep = await tx.task.create({
             data: {
               title: step.title,
@@ -982,7 +988,7 @@ export async function POST(req: NextRequest) {
               isLocked: stepOrder > 1, // first step is unlocked, rest are locked
             },
           })
-          await setTaskAssignees(tx, cascadeStep.id, [stepAssigneeId])
+          await setTaskAssignees(tx, cascadeStep.id, stepHolderIds)
         }
       }
 

@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { authOptions } from '@/lib/auth'
 import { parseMentions } from '@/lib/mentions'
 import { notifyMention } from '@/lib/notifications'
+import { canViewTask } from '@/lib/task-access'
 
 const createCommentSchema = z.object({
   content: z.string().max(500, 'Comment must be 500 characters or fewer').default(''),
@@ -46,8 +47,12 @@ export async function GET(
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
 
-    // Everyone who is authenticated can view comments
-    const hasAccess = true
+    // Only people who can see the task may read its discussion (it can carry
+    // attachments). Was open to every signed-in user.
+    const { allowed } = await canViewTask(params.id, session.user.id, session.user.role === 'ADMIN')
+    if (!allowed) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     // Get comments with nested structure (parent comments with their replies)
     const comments = await prisma.comment.findMany({
@@ -123,8 +128,11 @@ export async function POST(
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
 
-    // Everyone who is authenticated can post comments
-    const hasAccess = true
+    // Anyone who can see the task may join its discussion.
+    const { allowed: hasAccess } = await canViewTask(params.id, session.user.id, session.user.role === 'ADMIN')
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     const body = await req.json()
     const { content, parentId, imageUrl, fileUrl, fileName, fileType, fileSize } = createCommentSchema.parse(body)

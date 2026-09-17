@@ -2579,12 +2579,7 @@ export default function TeamOverviewPage() {
               setSelectedMemberForTask(null)
               fetchTeamData()
             } catch (err: any) {
-              toast({
-                title: 'Error',
-                description: err.message || 'Failed to assign task',
-                variant: 'destructive',
-              })
-              throw err
+              throw err // TaskForm shows the error and keeps the form open
             }
           }}
         />

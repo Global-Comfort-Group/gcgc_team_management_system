@@ -2050,6 +2050,11 @@ export default function TaskViewModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl lg:max-w-6xl max-h-[90vh] overflow-y-auto">
+        {/* The whole task (header + details) on the left, comments on the right
+            on wide screens, so the discussion sits beside the task itself
+            (field reports 2026-09). Stacks on narrow screens. */}
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-6 lg:items-start">
+        <div className="space-y-4 min-w-0">
         {/* Simple Header */}
         <DialogHeader className="space-y-3 pr-8 overflow-hidden">
           {/* Back button — shown when navigated into a subtask */}
@@ -2331,11 +2336,8 @@ export default function TaskViewModal({
           </div>
         </DialogHeader>
 
-        {/* Content — details left, comments right on wide screens so the
-            discussion stays visible while reading the task (field report
-            2026-09). Stacks on narrow screens. */}
-        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-6 lg:items-start">
-        <div className="space-y-4 min-w-0">
+        {/* Content */}
+        <div className="space-y-4">
           {/* Description */}
           {task.description && (
             <div className="space-y-2">
@@ -2972,46 +2974,6 @@ export default function TaskViewModal({
             </div>
           )}
 
-          {/* Review banner — appears for the assigner / creator / admin when a
-              task is sitting in IN_REVIEW awaiting their decision. Sits after
-              the subtasks so the reviewer decides having seen their progress
-              (field report 2026-09: it was at the very top, far from the work). */}
-          {task.status === 'IN_REVIEW' && canCompleteTask && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5">
-              <div className="flex items-center gap-2 text-sm text-amber-900">
-                <Eye className="h-4 w-4 shrink-0" />
-                <span>
-                  This task is awaiting your review.
-                  {task.memberSubmittedAt && (
-                    <span className="text-amber-700 ml-1">
-                      Submitted {formatDistanceToNow(new Date(task.memberSubmittedAt), { addSuffix: true })}.
-                    </span>
-                  )}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleReviewDecision('sendBack')}
-                  disabled={savingReview !== null}
-                >
-                  <RotateCcw className="h-4 w-4 mr-1.5" />
-                  {savingReview === 'sendBack' ? 'Sending…' : 'Send back'}
-                </Button>
-                <Button
-                  size="sm"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                  onClick={() => handleReviewDecision('approve')}
-                  disabled={savingReview !== null}
-                >
-                  <CheckCircle2 className="h-4 w-4 mr-1.5" />
-                  {savingReview === 'approve' ? 'Approving…' : 'Approve'}
-                </Button>
-              </div>
-            </div>
-          )}
-
           {/* Parent Task Link - Show if this is a subtask */}
           {task.parent && (
             <div className="border-t pt-4">
@@ -3054,6 +3016,46 @@ export default function TaskViewModal({
                   <span className="font-medium">{format(new Date(task.leaderEvaluatedAt), 'MMM dd, yyyy HH:mm')}</span>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Review banner — appears for the assigner / creator / admin when a
+              task is sitting in IN_REVIEW awaiting their decision. Sits below
+              the Timeline, right above the rating, so the reviewer decides
+              having seen the work and its dates (field reports 2026-09). */}
+          {task.status === 'IN_REVIEW' && canCompleteTask && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5">
+              <div className="flex items-center gap-2 text-sm text-amber-900">
+                <Eye className="h-4 w-4 shrink-0" />
+                <span>
+                  This task is awaiting your review.
+                  {task.memberSubmittedAt && (
+                    <span className="text-amber-700 ml-1">
+                      Submitted {formatDistanceToNow(new Date(task.memberSubmittedAt), { addSuffix: true })}.
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleReviewDecision('sendBack')}
+                  disabled={savingReview !== null}
+                >
+                  <RotateCcw className="h-4 w-4 mr-1.5" />
+                  {savingReview === 'sendBack' ? 'Sending…' : 'Send back'}
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={() => handleReviewDecision('approve')}
+                  disabled={savingReview !== null}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                  {savingReview === 'approve' ? 'Approving…' : 'Approve'}
+                </Button>
+              </div>
             </div>
           )}
 
@@ -3418,6 +3420,7 @@ export default function TaskViewModal({
           </div>
 
           </div>
+        </div>
 
           {/* Enhanced Comments Section */}
           <div className="border-t pt-6 mt-4 space-y-4 lg:mt-0 lg:border-t-0 lg:pt-0 lg:border-l lg:pl-6 lg:sticky lg:top-0">

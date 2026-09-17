@@ -176,6 +176,18 @@ export default function EvaluationsPage() {
     } finally { setLoadingMemberEvals(false) }
   }
 
+  // Team Overview's "Evaluate" links here with ?evaluateeId=… — open that
+  // member's history straight away instead of the general list.
+  const [deepLinkHandled, setDeepLinkHandled] = useState(false)
+  useEffect(() => {
+    if (deepLinkHandled || !isLeaderOrAdmin || users.length === 0) return
+    const id = new URLSearchParams(window.location.search).get('evaluateeId')
+    setDeepLinkHandled(true)
+    const member = id ? users.find(u => u.id === id) : undefined
+    if (member) openMemberDetail(member)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [users, isLeaderOrAdmin, deepLinkHandled])
+
   const closeMemberDetail = () => {
     setViewingMember(null)
     setMemberEvals([])

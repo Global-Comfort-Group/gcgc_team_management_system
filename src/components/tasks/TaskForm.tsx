@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { format } from 'date-fns'
-import { CalendarIcon, Plus, X, Users, User, Handshake, ListTodo, Trash2, ChevronDown, Settings2, RefreshCw, Loader2, GitBranch, GripVertical, Paperclip, FileText } from 'lucide-react'
+import { CalendarIcon, Plus, X, Users, User, Handshake, ListTodo, Trash2, ChevronDown, Settings2, RefreshCw, Loader2, GitBranch, GripVertical, Paperclip, FileText, LayoutGrid } from 'lucide-react'
 import { DatePicker } from '@/components/ui/date-picker'
 import { TimePicker } from '@/components/ui/time-picker'
 import { SearchableMultiSelect, SelectOption } from '@/components/ui/searchable-multi-select'
@@ -70,6 +70,18 @@ interface CascadeStep {
   assignedRoleId?: string
   assignee?: User
   dueDate?: string
+}
+
+interface BoardTemplate {
+  id: string
+  name: string
+  titlePrefix?: string | null
+  description?: string | null
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT' | null
+  taskWeight?: number | null
+  slaHours?: number | null
+  defaultRoleId?: string | null
+  checklist?: Array<{ title: string }> | null
 }
 
 const INHERIT = '__inherit__'
@@ -162,6 +174,9 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
   // whichever tab was open, so creating from "All Tasks" could never target a
   // board at all. 'none' = no board. Undefined = follow the open tab.
   const [pickedBoardId, setPickedBoardId] = useState<string | undefined>(undefined)
+  // Templates of the chosen board; the user picks one or None.
+  const [boardTemplates, setBoardTemplates] = useState<BoardTemplate[]>([])
+  const [appliedTemplate, setAppliedTemplate] = useState<BoardTemplate | null>(null)
   const [boardOptions, setBoardOptions] = useState<Array<{ id: string; name: string; team?: { id: string } | null; fields?: NonNullable<TaskFormProps["boardFields"]> }>>([])
   const boardContext = (() => {
     if (pickedBoardId === undefined) return boardContextProp ?? null
@@ -210,8 +225,6 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
   // Cascading is now a toggle (like Recurring), not a task type. The flat
   // "Assigned To" list is stored in teamMemberIds / selectedTeamMembers.
   const [isCascadingTask, setIsCascadingTask] = useState(false)
-  const isCascadingRef = useRef(false)
-  isCascadingRef.current = isCascadingTask
 
   // Attachments. While creating, files are held locally and sent in the submit
   // payload. While editing (task already exists), add/remove hit the dedicated
@@ -288,6 +301,11 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
     const dropRole = <T extends { assignedRoleId?: string }>(c: T): T => ({ ...c, assignedRoleId: undefined })
     setPendingSubtasks(prev => prev.some(c => c.assignedRoleId) ? prev.map(dropRole) : prev)
     setCascadeSteps(prev => prev.some(c => c.assignedRoleId) ? prev.map(dropRole) : prev)
+    // Another board's template no longer applies: drop its checklist too.
+    setBoardTemplates([])
+    setAppliedTemplate(null)
+    setPendingSubtasks(prev => prev.some(c => c.id.startsWith('tpl-')) ? prev.filter(c => !c.id.startsWith('tpl-')) : prev)
+    setCascadeSteps(prev => prev.some(c => c.id.startsWith('tpl-')) ? prev.filter(c => !c.id.startsWith('tpl-')) : prev)
     if (!open || !boardContext?.boardId) { setBoardRoles([]); setAssignedRoleId(''); setAssignMode('people'); return }
     let cancelled = false
     ;(async () => {
@@ -296,35 +314,14 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
         if (res.ok && !cancelled) setBoardRoles((await res.json()).roles || [])
       } catch { /* a missing role list should never block task creation */ }
 
-      // Board task template. Applied ONLY when creating — editing an existing
-      // task must never have its content quietly replaced by a default. Every
-      // value stays editable; these are defaults, not constraints.
+      // Board task templates, offered ONLY when creating — editing an existing
+      // task must never have its content replaced by a default. Nothing is
+      // applied until the user picks one (field report 2026-09).
       if (task || duplicateFrom) return
       try {
         const res = await fetch(`/api/boards/${boardContext.boardId}/template`)
-        if (!res.ok || cancelled) return
-        const tpl = (await res.json()).template
-        if (!tpl || cancelled) return
-
-        if (tpl.titlePrefix && !form.getValues('title')) form.setValue('title', tpl.titlePrefix)
-        if (tpl.description && !form.getValues('description')) form.setValue('description', tpl.description)
-        if (tpl.priority) form.setValue('priority', tpl.priority)
-        if (tpl.taskWeight) form.setValue('taskWeight', tpl.taskWeight)
-        if (tpl.slaHours) form.setValue('slaHours', tpl.slaHours)
-        if (tpl.defaultRoleId) { setAssignedRoleId(tpl.defaultRoleId); setAssignMode('role') }
-        if (Array.isArray(tpl.checklist) && tpl.checklist.length > 0) {
-          // Blank assignee = "Same as task": the item follows the task's role,
-          // else its first assigned person (field report 2026-09).
-          const items = tpl.checklist.map((c: any, i: number) => ({
-            id: `tpl-${i}`, title: String(c.title), assigneeId: '', dueDate: undefined,
-          }))
-          // A cascading task's checklist is its steps, not subtasks.
-          // Only into an empty list: switching boards must not wipe items the
-          // user has already typed.
-          if (isCascadingRef.current) setCascadeSteps(prev => prev.length ? prev : items)
-          else setPendingSubtasks(prev => prev.length ? prev : items)
-        }
-      } catch { /* a missing template should never block task creation */ }
+        if (res.ok && !cancelled) setBoardTemplates((await res.json()).templates || [])
+      } catch { /* a missing template list should never block task creation */ }
     })()
     return () => { cancelled = true }
   }, [open, boardContext?.boardId, task, duplicateFrom])
@@ -659,7 +656,75 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
     }
   }
 
+  // ── Error feedback ────────────────────────────────────────────────────────
+  // Every failure says what went wrong (popup) AND shows where: the section is
+  // scrolled into view and outlined for a moment (field report 2026-09).
+  const focusSection = (id: string) => {
+    const el = document.getElementById(id)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const ring = ['ring-2', 'ring-red-500', 'ring-offset-2', 'rounded-lg']
+    el.classList.add(...ring)
+    window.setTimeout(() => el.classList.remove(...ring), 2500)
+    const target = el.matches('input, textarea, button')
+      ? el
+      : el.querySelector<HTMLElement>('input:not([type=hidden]), textarea, button[role=combobox]')
+    target?.focus({ preventScroll: true })
+  }
+  const reportError = (title: string, description: string, sectionId?: string) => {
+    toast({ title, description, variant: 'destructive' })
+    if (sectionId) focusSection(sectionId)
+  }
+
+  // Client-side validation failed (react-hook-form).
+  const handleInvalid = (errors: Record<string, any>) => {
+    const order: Array<[string, string]> = [
+      ['title', 'title'],
+      ['dueDate', 'field-deadline'],
+      ['startDate', 'field-deadline'],
+      ['recurringFrequency', 'section-behavior'],
+      ['recurringEndDate', 'section-behavior'],
+    ]
+    const first = order.find(([k]) => errors[k]) ?? [Object.keys(errors)[0], '']
+    const message = errors[first[0]]?.message || 'Please check the highlighted field.'
+    const count = Object.keys(errors).length
+    reportError(
+      count > 1 ? `Please fix ${count} fields` : 'Please fix this field',
+      String(message),
+      first[1] || undefined,
+    )
+  }
+
+  // Server said no — point at the part of the form the message is about.
+  const sectionForServerError = (msg: string) => {
+    const m = msg.toLowerCase()
+    if (m.includes('role')) return 'section-assigned'
+    if (m.includes('ticket')) return 'ticketNumber'
+    if (m.includes('board') || m.includes('team')) return 'section-board'
+    if (m.includes('title')) return 'title'
+    if (m.includes('date') || m.includes('deadline')) return 'field-deadline'
+    if (m.includes('step') || m.includes('cascad')) return 'section-cascade'
+    if (m.includes('field')) return 'section-fields'
+    if (m.includes('assignee') || m.includes('member')) return 'section-assigned'
+    return undefined
+  }
+
   const handleSubmit = async (data: TaskFormData) => {
+    // Checks the schema can't express, reported the same way.
+    if (assignMode === 'role' && !assignedRoleId) {
+      reportError('Pick a role', 'Choose which role this task goes to, or switch to People.', 'section-assigned')
+      return
+    }
+    if (!task && isCascadingTask && cascadeSteps.length < 2) {
+      reportError('Add more steps', 'A cascading task needs at least 2 steps.', 'section-cascade')
+      return
+    }
+    const missingField = fields.find(f => f.required && !String(customFieldValues[f.id] ?? '').trim())
+    if (missingField && !isCascadingTask) {
+      reportError('Required field is empty', `Fill in "${missingField.name}".`, 'section-fields')
+      return
+    }
+
     setLoading(true)
     try {
       // Combine date and time if not all-day
@@ -684,9 +749,8 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
       const roleMode = assignMode === 'role' && !!assignedRoleId
       if (roleMode) {
         // Addressed to a role: no named people, and NO fallback to the current
-        // user. The server assigns the role's holder when there is exactly one
-        // and leaves it claimable when there are several; defaulting to the
-        // editor here would make the task theirs and unclaimable.
+        // user. The server assigns every holder of the role; defaulting to the
+        // editor here would add someone who doesn't hold it.
         submissionData.taskType = isCascadingTask ? 'CASCADING' : 'INDIVIDUAL'
         submissionData.assigneeId = null
         submissionData.teamMemberIds = []
@@ -814,7 +878,10 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
       setIsCascadingTask(false)
       setAttachments([])
     } catch (error) {
+      // The form stays open with everything the user entered.
       console.error('Error submitting task:', error)
+      const msg = error instanceof Error ? error.message : 'Something went wrong. Please try again.'
+      reportError(task ? 'Could not save the task' : 'Could not create the task', msg, sectionForServerError(msg))
     } finally {
       setLoading(false)
     }
@@ -913,6 +980,41 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
     }
   }
 
+  // Apply a board template, first undoing whatever the previous pick filled in
+  // (only where the user hasn't since changed it). null = None.
+  const applyTemplate = (next: BoardTemplate | null) => {
+    const prev = appliedTemplate
+    if (prev) {
+      if (prev.titlePrefix && form.getValues('title') === prev.titlePrefix) form.setValue('title', '')
+      if (prev.description && form.getValues('description') === prev.description) form.setValue('description', '')
+      if (prev.priority && form.getValues('priority') === prev.priority) form.setValue('priority', 'MEDIUM')
+      if (prev.taskWeight && form.getValues('taskWeight') === prev.taskWeight) form.setValue('taskWeight', undefined)
+      if (prev.slaHours && form.getValues('slaHours') === prev.slaHours) form.setValue('slaHours', undefined)
+      if (prev.defaultRoleId && assignedRoleId === prev.defaultRoleId) { setAssignedRoleId(''); setAssignMode('people') }
+      const fromTemplate = (c: { id: string }) => c.id.startsWith('tpl-')
+      setPendingSubtasks(p => p.filter(c => !fromTemplate(c)))
+      setCascadeSteps(p => p.filter(c => !fromTemplate(c)))
+    }
+    setAppliedTemplate(next)
+    if (!next) return
+    if (next.titlePrefix && !form.getValues('title')?.trim()) form.setValue('title', next.titlePrefix)
+    if (next.description && !form.getValues('description')?.trim()) form.setValue('description', next.description)
+    if (next.priority) form.setValue('priority', next.priority)
+    if (next.taskWeight) form.setValue('taskWeight', next.taskWeight)
+    if (next.slaHours) form.setValue('slaHours', next.slaHours)
+    if (next.defaultRoleId && boardRoles.some(r => r.id === next.defaultRoleId)) {
+      setAssignedRoleId(next.defaultRoleId); setAssignMode('role')
+    }
+    if (Array.isArray(next.checklist) && next.checklist.length > 0) {
+      // Blank assignee = "Same as task". A cascading task's checklist is its steps.
+      const items = next.checklist.map((c, i) => ({
+        id: `tpl-${next.id}-${i}`, title: String(c.title), assigneeId: '', dueDate: undefined,
+      }))
+      if (isCascadingTask) setCascadeSteps(p => [...p.filter(c => !c.id.startsWith('tpl-')), ...items])
+      else setPendingSubtasks(p => [...p.filter(c => !c.id.startsWith('tpl-')), ...items])
+    }
+  }
+
   // One picker for subtasks and steps: same-as-task, a person, or a role.
   const renderChildAssigneePicker = (value: string, onChange: (v: string) => void, className?: string) => (
     <Select value={value || INHERIT} onValueChange={onChange}>
@@ -997,29 +1099,85 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
           <DialogDescription>
             {task ? 'Update the task details below.' : duplicateFrom ? 'Review and adjust the duplicated task before saving.' : 'Fill in the details to create a new task.'}
           </DialogDescription>
-          {!task && (
-            <div className="flex items-center gap-2 mt-2">
-              <span className="text-xs text-muted-foreground shrink-0">Board</span>
-              <Select
-                value={pickedBoardId ?? boardContextProp?.boardId ?? 'none'}
-                onValueChange={(v) => setPickedBoardId(v)}
-              >
-                <SelectTrigger className="h-8 w-full max-w-xs text-xs">
-                  <SelectValue placeholder="No board" />
-                </SelectTrigger>
-                <SelectContent className="z-[200]">
-                  <SelectItem value="none">No board</SelectItem>
-                  {boardOptions.map(b => (
-                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
         </DialogHeader>
 
-        <form onSubmit={form.handleSubmit(handleSubmit)} className="flex flex-col flex-1 min-h-0">
+        <form onSubmit={form.handleSubmit(handleSubmit, handleInvalid)} className="flex flex-col flex-1 min-h-0">
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8">
+
+          {/* Where the task goes — board first, since roles, fields and
+              templates all depend on it (field report 2026-09). Create only. */}
+          {!task && (
+            <section id="section-board">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">Board</h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="task-board" className="text-base">Board</Label>
+                  <Select
+                    value={pickedBoardId ?? boardContextProp?.boardId ?? 'none'}
+                    onValueChange={(v) => setPickedBoardId(v)}
+                  >
+                    <SelectTrigger id="task-board" className="h-11">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <LayoutGrid className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="truncate"><SelectValue placeholder="No board" /></span>
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent className="z-[200] max-h-72">
+                      <SelectItem value="none">No board</SelectItem>
+                      {boardOptions.some(b => b.team) && (
+                        <SelectGroup>
+                          <SelectLabel className="text-xs">Team boards</SelectLabel>
+                          {boardOptions.filter(b => b.team).map(b => (
+                            <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                          ))}
+                        </SelectGroup>
+                      )}
+                      {boardOptions.some(b => !b.team) && (
+                        <SelectGroup>
+                          <SelectLabel className="text-xs">Personal boards</SelectLabel>
+                          {boardOptions.filter(b => !b.team).map(b => (
+                            <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                          ))}
+                        </SelectGroup>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {boardContext
+                      ? 'Roles, fields and templates come from this board.'
+                      : 'Without a board the task only appears under All Tasks.'}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="task-template" className="text-base">Template</Label>
+                  <Select
+                    value={appliedTemplate?.id ?? 'none'}
+                    onValueChange={(v) => applyTemplate(v === 'none' ? null : boardTemplates.find(t => t.id === v) ?? null)}
+                    disabled={boardTemplates.length === 0}
+                  >
+                    <SelectTrigger id="task-template" className="h-11">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="truncate"><SelectValue placeholder="None" /></span>
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent className="z-[200] max-h-72">
+                      <SelectItem value="none">None</SelectItem>
+                      {boardTemplates.map(t => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {boardTemplates.length === 0
+                      ? 'This board has no templates.'
+                      : 'Pre-fills the form. You can still change everything.'}
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* Basic Information Section */}
           <section>
@@ -1268,7 +1426,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
                         Deadline
                         <span className="text-xs text-orange-600 font-semibold">*Required</span>
                       </Label>
-                      <div className="space-y-2">
+                      <div id="field-deadline" className="space-y-2">
                         <DatePicker
                           date={form.watch('dueDate')}
                           onSelect={(date) => {
@@ -1337,7 +1495,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
 
               {/* Task behavior — Recurring or Cascading (one at a time). New tasks only. */}
               {!task && (
-                <div className="space-y-3">
+                <div id="section-behavior" className="space-y-3">
                   {/* Segmented selector */}
                   <div className="grid grid-cols-2 gap-2">
                     <button
@@ -1509,7 +1667,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
 
                   {/* Cascading steps builder */}
                   {isCascadingTask && (
-                    <Card className="border-2 border-indigo-200 bg-indigo-50/50">
+                    <Card id="section-cascade" className="border-2 border-indigo-200 bg-indigo-50/50">
                       <CardHeader className="pb-3">
                         <div className="flex items-start gap-3">
                           <div className="p-2 bg-indigo-100 rounded-full">
@@ -1625,7 +1783,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
           </div>
 
           {/* Assigned To + Cascading (replaces the old task-type cards) */}
-          <section>
+          <section id="section-assigned">
             {/* Always shown. It used to be hidden for cascading tasks, so editing
                 one made "Assigned To" vanish (field report 2026-09). */}
             <div className="flex items-center justify-between gap-3 mb-4">
@@ -1671,7 +1829,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  One holder is assigned straight away. Several leaves it unclaimed for any of them to take.
+                  Everyone who holds this role is assigned to the task.
                 </p>
               </div>
             )}
@@ -1745,7 +1903,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
 
           {/* Per-board custom fields */}
           {fields.length > 0 && !isCascadingTask && (
-            <section>
+            <section id="section-fields">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">Custom fields</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {fields.map((f) => {

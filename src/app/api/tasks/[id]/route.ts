@@ -637,6 +637,7 @@ export async function PATCH(
     // A role with exactly one holder is just a shortcut, so assign them. Several
     // holders leaves the task claimable. None would make the task invisible to
     // everyone, so it is rejected rather than silently created.
+    let roleHolderIds: string[] | null = null
     if ((updateData as any).assignedRoleId) {
       const role = await prisma.boardRole.findUnique({
         where: { id: (updateData as any).assignedRoleId },
@@ -652,8 +653,14 @@ export async function PATCH(
       if (outcome.kind === 'reject') {
         return NextResponse.json({ error: outcome.reason }, { status: 400 })
       }
-      if (outcome.kind === 'assign') {
-        ;(updateData as any).assigneeId = outcome.userId
+      // Every holder is assigned: the first owns it, the rest join the team.
+      roleHolderIds = outcome.userIds
+      ;(updateData as any).assigneeId = outcome.userIds[0]
+      const cascading = (updateData.taskType ?? existingTask.taskType) === 'CASCADING'
+      if (!cascading) {
+        updateData.taskType = outcome.userIds.length > 1 ? 'TEAM' : 'INDIVIDUAL'
+        updateData.teamMemberIds = outcome.userIds.slice(1)
+        updateData.collaboratorIds = []
       }
     }
 
@@ -867,7 +874,11 @@ export async function PATCH(
             : updateData.taskType !== undefined && updateData.collaboratorIds !== undefined
               ? [] // cleared above
               : existingTask.collaborators.map((c: { userId: string }) => c.userId)
-        await setTaskAssignees(tx, params.id, [effectiveAssigneeId, ...effectiveTeamMemberIds, ...effectiveCollaboratorIds])
+        await setTaskAssignees(
+          tx,
+          params.id,
+          roleHolderIds ?? [effectiveAssigneeId, ...effectiveTeamMemberIds, ...effectiveCollaboratorIds],
+        )
       }
 
       // Return updated task with all relations

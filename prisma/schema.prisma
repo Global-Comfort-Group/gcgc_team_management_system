@@ -301,7 +301,7 @@ model KanbanBoard {
   members   KanbanBoardMember[]
   reviewers BoardReviewer[]
   roles     BoardRole[]
-  taskTemplate BoardTaskTemplate?
+  taskTemplates BoardTaskTemplate[]
   statuses  BoardStatus[]
   fields   BoardField[]
   forms    IntakeForm[]
@@ -1325,9 +1325,13 @@ model BoardRoleAssignment {
 
 /// Defaults for new tasks on a board. Defaults, NOT constraints — every field
 /// stays editable in the form. One per board in v1.
+// A board can have several named templates (e.g. "PO Template", "PR Template");
+// the person creating a task picks one, or None.
 model BoardTaskTemplate {
   id            String    @id @default(cuid())
-  boardId       String    @unique
+  boardId       String
+  name          String    @default("Default")
+  position      Int       @default(0)
   titlePrefix   String?
   description   String?
   priority      Priority?
@@ -1335,9 +1339,12 @@ model BoardTaskTemplate {
   slaHours      Int?
   defaultRoleId String?
   checklist     Json?     // [{ title }] seeded as subtasks
+  createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   board KanbanBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
 
+  @@unique([boardId, name])
+  @@index([boardId])
   @@map("board_task_templates")
 }

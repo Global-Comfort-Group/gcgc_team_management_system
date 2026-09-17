@@ -146,14 +146,13 @@ export function wouldLeaveBoardUnmanageable(
 /**
  * What happens when a task is addressed to a role.
  *
- * A role is not an assignee. One holder means the role was just a shortcut, so
- * assign them and be done. Several means the work is genuinely up for grabs.
- * None means the task would be invisible to everyone, which is worse than an
- * error at the point of creation.
+ * Every holder is assigned (field report 2026-09 — it used to wait for one of
+ * them to claim it, which left work sitting unowned). The first holder is the
+ * owner (`assigneeId`); the rest join as co-assignees. None means the task would
+ * be invisible to everyone, which is worse than an error at creation.
  */
 export type RoleAddressOutcome =
-  | { kind: 'assign'; userId: string }
-  | { kind: 'unclaimed' }
+  | { kind: 'assign'; userIds: string[] }
   | { kind: 'reject'; reason: string }
 
 export function resolveRoleAddressing(
@@ -166,6 +165,5 @@ export function resolveRoleAddressing(
       reason: `No one holds the "${role.name}" role on this board yet, so the task would reach nobody.`,
     }
   }
-  if (role.holderIds.length === 1) return { kind: 'assign', userId: role.holderIds[0] }
-  return { kind: 'unclaimed' }
+  return { kind: 'assign', userIds: Array.from(new Set(role.holderIds)) }
 }
