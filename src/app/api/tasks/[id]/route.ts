@@ -13,6 +13,7 @@ import { resolveReviewerGate } from '@/lib/board-reviewer'
 import { setTaskFieldValues } from '@/lib/task-fields'
 import { notifyTaskAssigned, notifyTaskUpdated, notifyTaskCompleted, notifyTaskSubmittedForReview, notifySubtaskAssigned } from '@/lib/notifications'
 import { broadcastTaskChange, resolveTaskAudience, emitTaskChanged } from '@/lib/task-events'
+import { syncTaskEvaluations } from '@/lib/task-evaluation-sync'
 import { resolveBacklogEntry, resolveBacklogRestore, leavesBacklogExplicitly } from '@/lib/backlog-state'
 import { allocateTicketNumber } from '@/lib/ticket-allocate'
 import { applyManualTicketNumber, TicketNumberError } from '@/lib/ticket-allocate'
@@ -152,6 +153,7 @@ export async function GET(
             assignee: {
               select: { id: true, name: true, email: true, image: true }
             },
+            assignedRole: { select: { id: true, name: true, color: true } },
             reviewer: {
               select: { id: true, name: true, email: true, image: true }
             }
@@ -300,6 +302,8 @@ export async function GET(
       viewerCanChangeStatus,
       viewerCanRate: viewGate.canRate,
       boardHasReviewerPool,
+      // The board a subtask's roles come from (its own, else its parent's).
+      governingBoardId: reviewerBoardIdView,
     })
   } catch (error) {
     console.error('Task GET error:', error)
@@ -809,6 +813,16 @@ export async function PATCH(
         }
       }
 
+      // Leaving TEAM / COLLABORATION (down to one person, or to a role) must drop
+      // the old people. The blocks above only ever rewrite while the type stays
+      // the same, so a TEAM task edited to a role kept listing its old team.
+      if (updateData.taskType !== undefined && updateData.taskType !== 'TEAM' && updateData.teamMemberIds !== undefined) {
+        await tx.taskTeamMember.deleteMany({ where: { taskId: params.id } })
+      }
+      if (updateData.taskType !== undefined && updateData.taskType !== 'COLLABORATION' && updateData.collaboratorIds !== undefined) {
+        await tx.taskCollaborator.deleteMany({ where: { taskId: params.id } })
+      }
+
       // Update collaborators if taskType is COLLABORATION and collaboratorIds provided
       if (updateData.taskType === 'COLLABORATION' && updateData.collaboratorIds) {
         // Remove existing collaborators
@@ -843,12 +857,16 @@ export async function PATCH(
         const effectiveTeamMemberIds =
           updateData.taskType === 'TEAM' && updateData.teamMemberIds !== undefined
             ? updateData.teamMemberIds
-            : existingTask.teamMembers.map((tm: { userId: string }) => tm.userId)
+            : updateData.taskType !== undefined && updateData.teamMemberIds !== undefined
+              ? [] // cleared above
+              : existingTask.teamMembers.map((tm: { userId: string }) => tm.userId)
         // Only use incoming collaboratorIds when the legacy block would have rewritten them
         const effectiveCollaboratorIds =
           updateData.taskType === 'COLLABORATION' && updateData.collaboratorIds !== undefined
             ? updateData.collaboratorIds
-            : existingTask.collaborators.map((c: { userId: string }) => c.userId)
+            : updateData.taskType !== undefined && updateData.collaboratorIds !== undefined
+              ? [] // cleared above
+              : existingTask.collaborators.map((c: { userId: string }) => c.userId)
         await setTaskAssignees(tx, params.id, [effectiveAssigneeId, ...effectiveTeamMemberIds, ...effectiveCollaboratorIds])
       }
 
@@ -1282,6 +1300,21 @@ export async function PATCH(
       }
     }
     // --- End recurring chain ---
+
+    // Mirror a rating change onto the member's evaluations so leaders can
+    // review grades (field report 2026-09). Assignee changes re-sync too, so
+    // the evaluation follows whoever the rated work belongs to.
+    if (
+      (updateData as any).workQuality !== undefined ||
+      (updateData as any).seniorWorkQuality !== undefined ||
+      updateData.assigneeId !== undefined ||
+      updateData.teamMemberIds !== undefined
+    ) {
+      await syncTaskEvaluations(
+        params.id,
+        (updateData as any).workQuality !== undefined ? session.user.id : undefined,
+      )
+    }
 
     // Fan the change out to every open board/dashboard. The pre-update
     // assignee and team/collaborator ids are passed explicitly: on a transfer

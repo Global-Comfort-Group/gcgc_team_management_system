@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestSession } from '@/lib/api-auth'
 import { prisma } from '@/lib/prisma'
+import { CLOSED_TASK_STATUSES } from '@/lib/task-scope'
 import { isTaskOverdue } from '@/lib/overdue'
 import { resolveLeaderRoster, annotateMemberSource } from '@/lib/leader-roster'
 
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
         reportsToId: true,
         assignedTasks: {
           where: {
-            status: { notIn: ['COMPLETED', 'CANCELLED'] }
+            status: { notIn: [...CLOSED_TASK_STATUSES] }
           },
           select: {
             id: true,

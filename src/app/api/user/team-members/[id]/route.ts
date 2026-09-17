@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { prisma } from '@/lib/prisma'
+import { CLOSED_TASK_STATUSES, COMPLETED_WORK_WHERE } from '@/lib/task-scope'
 import { authOptions } from '@/lib/auth'
 
 export async function GET(
@@ -50,7 +51,7 @@ export async function GET(
         reportsToId: true,
         assignedTasks: {
           where: {
-            status: { not: 'COMPLETED' } // Only get active tasks
+            status: { notIn: [...CLOSED_TASK_STATUSES] } // Only get active tasks
           },
           select: {
             id: true,
@@ -81,7 +82,7 @@ export async function GET(
           select: {
             assignedTasks: {
               where: {
-                status: { not: 'COMPLETED' }
+                status: { notIn: [...CLOSED_TASK_STATUSES] }
               }
             }
           }
@@ -97,7 +98,7 @@ export async function GET(
     const completedTasksCount = await prisma.task.count({
       where: {
         assigneeId: id,
-        status: 'COMPLETED',
+        AND: [COMPLETED_WORK_WHERE],
         updatedAt: {
           gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) // This month
         }

@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Progress } from '@/components/ui/progress'
@@ -51,10 +51,14 @@ interface User {
   role?: string
 }
 
+// A subtask / cascade step is assigned to a person, to a board role, or —
+// when both are empty — to whatever the main task is assigned to ("Same as
+// task", resolved on submit so it follows later changes to Assigned To).
 interface PendingSubtask {
   id: string // Temporary ID for UI
   title: string
   assigneeId: string
+  assignedRoleId?: string
   assignee?: User
   dueDate?: string
 }
@@ -63,9 +67,19 @@ interface CascadeStep {
   id: string // Temporary ID for UI
   title: string
   assigneeId: string
+  assignedRoleId?: string
   assignee?: User
   dueDate?: string
 }
+
+const INHERIT = '__inherit__'
+const ROLE_PREFIX = 'role:'
+const childPickValue = (c: { assigneeId: string; assignedRoleId?: string }) =>
+  c.assignedRoleId ? ROLE_PREFIX + c.assignedRoleId : (c.assigneeId || INHERIT)
+const childFromPick = (v: string): { assigneeId: string; assignedRoleId?: string } =>
+  v === INHERIT ? { assigneeId: '' }
+    : v.startsWith(ROLE_PREFIX) ? { assigneeId: '', assignedRoleId: v.slice(ROLE_PREFIX.length) }
+    : { assigneeId: v }
 
 interface AttachmentItem {
   id?: string              // present once persisted to the DB (edit mode)
@@ -143,7 +157,18 @@ interface TaskFormProps {
   initialCustomStatusId?: string // the custom board column to drop the new task into (per-column quick-add) (#26)
 }
 
-export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSubmit, preSelectedMemberId, initialDueDate, boardContext, boardFields, initialStatus, initialCustomStatusId }: TaskFormProps) {
+export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSubmit, preSelectedMemberId, initialDueDate, boardContext: boardContextProp, boardFields, initialStatus, initialCustomStatusId }: TaskFormProps) {
+  // New Task can pick its board (field report 2026-09). Previously the board was
+  // whichever tab was open, so creating from "All Tasks" could never target a
+  // board at all. 'none' = no board. Undefined = follow the open tab.
+  const [pickedBoardId, setPickedBoardId] = useState<string | undefined>(undefined)
+  const [boardOptions, setBoardOptions] = useState<Array<{ id: string; name: string; team?: { id: string } | null; fields?: NonNullable<TaskFormProps["boardFields"]> }>>([])
+  const boardContext = (() => {
+    if (pickedBoardId === undefined) return boardContextProp ?? null
+    if (pickedBoardId === 'none') return null
+    const b = boardOptions.find(x => x.id === pickedBoardId)
+    return b ? { boardId: b.id, boardName: b.name, teamId: b.team?.id ?? null } : (boardContextProp ?? null)
+  })()
   const { data: session } = useSession()
   const [loading, setLoading] = useState(false)
   const [users, setUsers] = useState<User[]>([])
@@ -166,16 +191,27 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
   // Board roles a task can be addressed to. Only meaningful on a board.
   const [boardRoles, setBoardRoles] = useState<Array<{ id: string; name: string; color: string; assignments: any[] }>>([])
   const [assignedRoleId, setAssignedRoleId] = useState('')
+  // "Assigned To" is either named people OR a board role — never both. A role
+  // replaces the people picker rather than sitting beside it (field report
+  // 2026-09), because a task addressed to a role must not also be owned by
+  // whoever happened to be listed, or saved the form.
+  const [assignMode, setAssignMode] = useState<'people' | 'role'>('people')
 
   // Per-board custom field values (fieldId -> value)
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({})
-  const fields = boardFields || []
+  // Custom fields belong to the board the task is created on — the picked one
+  // when the user chose, else the open tab's.
+  const fields = (pickedBoardId === undefined
+    ? boardFields
+    : pickedBoardId === 'none' ? [] : boardOptions.find(b => b.id === pickedBoardId)?.fields) || []
   const [newStepTitle, setNewStepTitle] = useState('')
   const [newStepAssigneeId, setNewStepAssigneeId] = useState('')
   const [newStepDueDate, setNewStepDueDate] = useState('')
   // Cascading is now a toggle (like Recurring), not a task type. The flat
   // "Assigned To" list is stored in teamMemberIds / selectedTeamMembers.
   const [isCascadingTask, setIsCascadingTask] = useState(false)
+  const isCascadingRef = useRef(false)
+  isCascadingRef.current = isCascadingTask
 
   // Attachments. While creating, files are held locally and sent in the submit
   // payload. While editing (task already exists), add/remove hit the dedicated
@@ -232,10 +268,27 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
     }
   }, [open, showAllUsers, boardContext?.teamId])
 
+  useEffect(() => {
+    if (!open) { setPickedBoardId(undefined); return }
+    if (task) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/boards')
+        if (res.ok && !cancelled) setBoardOptions((await res.json()).boards || [])
+      } catch { /* the picker is optional; creating without it still works */ }
+    })()
+    return () => { cancelled = true }
+  }, [open, task])
+
   // Board roles, for the "Assign to role" picker. Only boards have roles, so
   // this is skipped entirely for a board-less task.
   useEffect(() => {
-    if (!open || !boardContext?.boardId) { setBoardRoles([]); return }
+    // Roles belong to one board, so a board change drops every role reference.
+    const dropRole = <T extends { assignedRoleId?: string }>(c: T): T => ({ ...c, assignedRoleId: undefined })
+    setPendingSubtasks(prev => prev.some(c => c.assignedRoleId) ? prev.map(dropRole) : prev)
+    setCascadeSteps(prev => prev.some(c => c.assignedRoleId) ? prev.map(dropRole) : prev)
+    if (!open || !boardContext?.boardId) { setBoardRoles([]); setAssignedRoleId(''); setAssignMode('people'); return }
     let cancelled = false
     ;(async () => {
       try {
@@ -258,11 +311,18 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
         if (tpl.priority) form.setValue('priority', tpl.priority)
         if (tpl.taskWeight) form.setValue('taskWeight', tpl.taskWeight)
         if (tpl.slaHours) form.setValue('slaHours', tpl.slaHours)
-        if (tpl.defaultRoleId) setAssignedRoleId(tpl.defaultRoleId)
+        if (tpl.defaultRoleId) { setAssignedRoleId(tpl.defaultRoleId); setAssignMode('role') }
         if (Array.isArray(tpl.checklist) && tpl.checklist.length > 0) {
-          setPendingSubtasks(tpl.checklist.map((c: any, i: number) => ({
+          // Blank assignee = "Same as task": the item follows the task's role,
+          // else its first assigned person (field report 2026-09).
+          const items = tpl.checklist.map((c: any, i: number) => ({
             id: `tpl-${i}`, title: String(c.title), assigneeId: '', dueDate: undefined,
-          })))
+          }))
+          // A cascading task's checklist is its steps, not subtasks.
+          // Only into an empty list: switching boards must not wipe items the
+          // user has already typed.
+          if (isCascadingRef.current) setCascadeSteps(prev => prev.length ? prev : items)
+          else setPendingSubtasks(prev => prev.length ? prev : items)
         }
       } catch { /* a missing template should never block task creation */ }
     })()
@@ -320,6 +380,8 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
         setSelectedTeamMembers(Array.from(memberUsers.values()))
         setSelectedCollaborators([])
         setIsCascadingTask(!!(task as any).isCascading || task.taskType === 'CASCADING')
+        setAssignedRoleId((task as any).assignedRoleId || '')
+        setAssignMode((task as any).assignedRoleId ? 'role' : 'people')
         setCustomFieldValues(Object.fromEntries((((task as any).fieldValues) || []).map((v: any) => [v.fieldId, v.value])))
         setAttachments(((task as any).attachments || []).map((a: any) => ({
           id: a.id,
@@ -394,6 +456,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
         setNewSubtaskTitle('')
         setManualTicket('')
         setAssignedRoleId('')
+        setAssignMode('people')
         setNewSubtaskAssigneeId('')
         setNewSubtaskDeadline('')
       } else {
@@ -614,11 +677,32 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
 
       // Map the flat "Assigned To" (teamMemberIds) + Cascading toggle to the
       // legacy taskType fields the API still expects (type selector was removed).
-      if (isCascadingTask) {
-        submissionData.taskType = 'CASCADING'
+      if (!task && pickedBoardId !== undefined) {
+        ;(submissionData as any).boardId = pickedBoardId === 'none' ? null : pickedBoardId
+      }
+
+      const roleMode = assignMode === 'role' && !!assignedRoleId
+      if (roleMode) {
+        // Addressed to a role: no named people, and NO fallback to the current
+        // user. The server assigns the role's holder when there is exactly one
+        // and leaves it claimable when there are several; defaulting to the
+        // editor here would make the task theirs and unclaimable.
+        submissionData.taskType = isCascadingTask ? 'CASCADING' : 'INDIVIDUAL'
+        submissionData.assigneeId = null
+        submissionData.teamMemberIds = []
+        submissionData.collaboratorIds = []
+        ;(submissionData as any).assignedRoleId = assignedRoleId
       } else {
+        // People mode. Editing a task that used to be role-addressed clears it.
+        if (task && (task as any).assignedRoleId) (submissionData as any).assignedRoleId = null
         const assignees = data.teamMemberIds || []
-        if (assignees.length > 1) {
+        if (isCascadingTask) {
+          // A cascading task still has an owner; each step carries its own
+          // assignee on top of that.
+          submissionData.taskType = 'CASCADING'
+          submissionData.assigneeId = assignees[0] ?? session?.user?.id ?? null
+          submissionData.teamMemberIds = assignees.slice(1)
+        } else if (assignees.length > 1) {
           submissionData.taskType = 'TEAM'
           submissionData.assigneeId = assignees[0]
           submissionData.teamMemberIds = assignees.slice(1)
@@ -670,19 +754,26 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
         }
       }
 
-      if (assignedRoleId) (submissionData as any).assignedRoleId = assignedRoleId
-
       // Only send a manual ticket number when one was typed; otherwise the
       // server allocates.
       if (!task && manualTicket.trim()) {
         ;(submissionData as any).ticketNumber = manualTicket.trim()
       }
 
-      // Include subtasks in submission (only for non-cascading tasks)
-      submissionData.subtasks = pendingSubtasks.map(s => ({
+      // "Same as task" children take the task's role, else its first person.
+      const resolveChild = (c: { assigneeId: string; assignedRoleId?: string }) => {
+        if (c.assignedRoleId) return { assigneeId: null, assignedRoleId: c.assignedRoleId }
+        if (c.assigneeId) return { assigneeId: c.assigneeId, assignedRoleId: null }
+        if (roleMode) return { assigneeId: null, assignedRoleId }
+        return { assigneeId: (data.teamMemberIds || [])[0] ?? session?.user?.id ?? null, assignedRoleId: null }
+      }
+
+      // Subtasks only for non-cascading tasks — a cascading task's children are
+      // its steps, and sending both created duplicates.
+      submissionData.subtasks = (isCascadingTask ? [] : pendingSubtasks).map(s => ({
         title: s.title,
-        assigneeId: s.assigneeId,
-      }))
+        ...resolveChild(s),
+      })) as any
 
       // Attachments ride in the payload only on CREATE (the task doesn't exist
       // yet). On EDIT they're already persisted live via the dedicated endpoint.
@@ -697,7 +788,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
       if (isCascadingTask) {
         ;(submissionData as any).cascadeSteps = cascadeSteps.map(s => ({
           title: s.title,
-          assigneeId: s.assigneeId || null,
+          ...resolveChild(s),
           dueDate: s.dueDate ? new Date(s.dueDate).toISOString() : null,
         }))
       }
@@ -757,18 +848,10 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
   const addSubtask = () => {
     if (!newSubtaskTitle.trim()) return
 
-    const assigneeId = newSubtaskAssigneeId || session?.user?.id || ''
-    const assignee = users.find(u => u.id === assigneeId) || (session?.user?.id === assigneeId ? {
-      id: session.user.id,
-      name: session.user.name || undefined,
-      email: session.user.email || '',
-    } : undefined)
-
     const newSubtask: PendingSubtask = {
       id: `temp-${Date.now()}`,
       title: newSubtaskTitle.trim(),
-      assigneeId,
-      assignee,
+      ...childFromPick(newSubtaskAssigneeId || INHERIT),
       dueDate: newSubtaskDeadline || undefined,
     }
 
@@ -784,13 +867,10 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
 
   const addCascadeStep = () => {
     if (!newStepTitle.trim()) return
-    const assigneeId = newStepAssigneeId || ''
-    const assignee = assigneeId ? users.find(u => u.id === assigneeId) : undefined
     setCascadeSteps([...cascadeSteps, {
       id: `step-${Date.now()}`,
       title: newStepTitle.trim(),
-      assigneeId,
-      assignee,
+      ...childFromPick(newStepAssigneeId || INHERIT),
       dueDate: newStepDueDate || undefined,
     }])
     setNewStepTitle('')
@@ -822,8 +902,50 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
     const next = !isCascadingTask
     if (next && form.watch('isRecurring')) { form.setValue('isRecurring', false); clearRecurringFields() }
     setIsCascadingTask(next)
-    if (!next) setCascadeSteps([])
+    // Checklist items and steps are the same list in two shapes — carry them
+    // across rather than silently dropping one (field report 2026-09).
+    if (next) {
+      setCascadeSteps(prev => [...prev, ...pendingSubtasks])
+      setPendingSubtasks([])
+    } else {
+      setPendingSubtasks(prev => [...prev, ...cascadeSteps])
+      setCascadeSteps([])
+    }
   }
+
+  // One picker for subtasks and steps: same-as-task, a person, or a role.
+  const renderChildAssigneePicker = (value: string, onChange: (v: string) => void, className?: string) => (
+    <Select value={value || INHERIT} onValueChange={onChange}>
+      <SelectTrigger className={cn('h-8 text-xs w-[170px]', className)}>
+        <SelectValue placeholder="Assign to..." />
+      </SelectTrigger>
+      <SelectContent className="z-[200]">
+        <SelectItem value={INHERIT}>Same as task</SelectItem>
+        {session?.user?.id && <SelectItem value={session.user.id}>Myself</SelectItem>}
+        {boardRoles.length > 0 && (
+          <SelectGroup>
+            <SelectLabel className="text-xs">Roles</SelectLabel>
+            {boardRoles.map(r => (
+              <SelectItem key={r.id} value={ROLE_PREFIX + r.id} disabled={r.assignments.length === 0}>
+                {r.name}{r.assignments.length === 0 ? ' (nobody)' : ''}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        )}
+        <SelectGroup>
+          {boardRoles.length > 0 && <SelectLabel className="text-xs">People</SelectLabel>}
+          {users.filter(u => u.id !== session?.user?.id).map((user) => (
+            <SelectItem key={user.id} value={user.id}>
+              <div className="flex items-center gap-2">
+                <Avatar className="h-5 w-5"><AvatarFallback className="text-xs">{(user.name || user.email)?.[0]?.toUpperCase()}</AvatarFallback></Avatar>
+                {user.name || user.email}
+              </div>
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  )
 
   const getTaskTypeIcon = (type: TaskType) => {
     switch (type) {
@@ -875,8 +997,24 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
           <DialogDescription>
             {task ? 'Update the task details below.' : duplicateFrom ? 'Review and adjust the duplicated task before saving.' : 'Fill in the details to create a new task.'}
           </DialogDescription>
-          {!task && boardContext?.boardName && (
-            <p className="text-xs text-muted-foreground mt-1">Creating on: <span className="font-medium text-foreground">{boardContext.boardName}</span></p>
+          {!task && (
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-xs text-muted-foreground shrink-0">Board</span>
+              <Select
+                value={pickedBoardId ?? boardContextProp?.boardId ?? 'none'}
+                onValueChange={(v) => setPickedBoardId(v)}
+              >
+                <SelectTrigger className="h-8 w-full max-w-xs text-xs">
+                  <SelectValue placeholder="No board" />
+                </SelectTrigger>
+                <SelectContent className="z-[200]">
+                  <SelectItem value="none">No board</SelectItem>
+                  {boardOptions.map(b => (
+                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
         </DialogHeader>
 
@@ -901,41 +1039,6 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
                   </p>
                 )}
               </div>
-
-              {/* Address the task to a role instead of a person. Showing the
-                  holder count matters: a role with none cannot take work, and
-                  the server rejects it — better to see that before submitting. */}
-              {boardRoles.length > 0 && (
-                <div className="space-y-2">
-                  <Label htmlFor="assignedRole" className="text-base">
-                    Assign to Role <span className="text-muted-foreground font-normal text-sm">(optional)</span>
-                  </Label>
-                  <Select value={assignedRoleId || 'none'} onValueChange={(v) => setAssignedRoleId(v === 'none' ? '' : v)}>
-                    <SelectTrigger id="assignedRole" className="h-11">
-                      <SelectValue placeholder="Assign to a person instead" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Assign to a person instead</SelectItem>
-                      {boardRoles.map(r => (
-                        <SelectItem key={r.id} value={r.id} disabled={(r.assignments?.length ?? 0) === 0}>
-                          <span className="flex items-center gap-2">
-                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: r.color }} />
-                            {r.name}
-                            <span className="text-xs text-muted-foreground">
-                              {(r.assignments?.length ?? 0) === 0
-                                ? '· nobody holds this yet'
-                                : `· ${r.assignments.length} ${r.assignments.length === 1 ? 'person' : 'people'}`}
-                            </span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    One holder is assigned straight away. Several leaves it unclaimed for any of them to take.
-                  </p>
-                </div>
-              )}
 
               {/* Manual ticket number — create only. Editing an existing
                   task's number is supported by the API but has no UI yet; the
@@ -1438,22 +1541,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
                           </div>
                           {newStepTitle.trim() && (
                             <div className="flex gap-2 pl-1">
-                              <Select value={newStepAssigneeId} onValueChange={setNewStepAssigneeId}>
-                                <SelectTrigger className="h-8 text-xs w-[160px]">
-                                  <SelectValue placeholder="Assign to..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value={session?.user?.id || 'self'}>Myself</SelectItem>
-                                  {users.filter(u => u.id !== session?.user?.id).map((user) => (
-                                    <SelectItem key={user.id} value={user.id}>
-                                      <div className="flex items-center gap-2">
-                                        <Avatar className="h-5 w-5"><AvatarFallback className="text-xs">{(user.name || user.email)?.[0]?.toUpperCase()}</AvatarFallback></Avatar>
-                                        {user.name || user.email}
-                                      </div>
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              {renderChildAssigneePicker(newStepAssigneeId, setNewStepAssigneeId)}
                               <DatePicker
                                 date={newStepDueDate ? new Date(newStepDueDate) : undefined}
                                 onSelect={d => setNewStepDueDate(d ? format(d, 'yyyy-MM-dd') : '')}
@@ -1483,10 +1571,13 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
                                   </div>
                                   <div className="flex-1 min-w-0">
                                     <p className="text-sm font-medium truncate">{step.title}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {step.assignee?.name || step.assignee?.email || 'Unassigned'}
-                                      {step.dueDate && <span className="ml-2">· Due {new Date(step.dueDate).toLocaleDateString()}</span>}
-                                    </p>
+                                    <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-muted-foreground">
+                                      {renderChildAssigneePicker(childPickValue(step), (v) =>
+                                        setCascadeSteps(prev => prev.map(x => x.id === step.id ? { ...x, assignee: undefined, ...childFromPick(v), ...(childFromPick(v).assignedRoleId ? {} : { assignedRoleId: undefined }) } : x)),
+                                        'h-7'
+                                      )}
+                                      {step.dueDate && <span>Due {new Date(step.dueDate).toLocaleDateString()}</span>}
+                                    </div>
                                   </div>
                                   {index > 0 && (
                                     <Badge variant="outline" className="text-xs text-indigo-600 border-indigo-300 flex-shrink-0">
@@ -1535,12 +1626,58 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
 
           {/* Assigned To + Cascading (replaces the old task-type cards) */}
           <section>
-            {!isCascadingTask && (
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">Assigned To</h3>
+            {/* Always shown. It used to be hidden for cascading tasks, so editing
+                one made "Assigned To" vanish (field report 2026-09). */}
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Assigned To</h3>
+              {boardRoles.length > 0 && (
+                <div className="inline-flex items-center rounded-md border p-0.5 text-xs">
+                  {(['people', 'role'] as const).map(m => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setAssignMode(m)}
+                      className={cn('px-2.5 h-6 rounded font-medium',
+                        assignMode === m ? 'bg-blue-600 text-white' : 'text-slate-600 hover:text-slate-900')}
+                    >
+                      {m === 'people' ? 'People' : 'Role'}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {assignMode === 'role' && boardRoles.length > 0 && (
+              <div className="space-y-2 mb-4">
+                <Select value={assignedRoleId || 'none'} onValueChange={(v) => setAssignedRoleId(v === 'none' ? '' : v)}>
+                  <SelectTrigger id="assignedRole" className="h-11">
+                    <SelectValue placeholder="Pick a role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Pick a role</SelectItem>
+                    {boardRoles.map(r => (
+                      <SelectItem key={r.id} value={r.id} disabled={(r.assignments?.length ?? 0) === 0}>
+                        <span className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: r.color }} />
+                          {r.name}
+                          <span className="text-xs text-muted-foreground">
+                            {(r.assignments?.length ?? 0) === 0
+                              ? '· nobody holds this yet'
+                              : `· ${r.assignments.length} ${r.assignments.length === 1 ? 'person' : 'people'}`}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  One holder is assigned straight away. Several leaves it unclaimed for any of them to take.
+                </p>
+              </div>
             )}
 
             {/* People-scope toggle — only when in a team board context */}
-            {!isCascadingTask && boardContext?.teamId && (
+            {assignMode === 'people' && boardContext?.teamId && (
               <div className="flex items-center justify-end gap-2 mb-2">
                 <span className="text-xs text-muted-foreground">{showAllUsers ? 'Showing all users' : 'Showing team members only'}</span>
                 <button type="button" className="text-xs text-blue-600 hover:underline" onClick={() => setShowAllUsers(v => !v)}>
@@ -1550,7 +1687,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
             )}
 
             {/* Flat "Assigned To" — one or more people (board members / all users) */}
-            {!isCascadingTask && (
+            {assignMode === 'people' && (
               <div className="space-y-2 mb-4">
                 <SearchableMultiSelect
                   options={users as SelectOption[]}
@@ -1561,7 +1698,11 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
                   placeholder="Search and add people..."
                   emptyText="No people available"
                 />
-                <p className="text-xs text-muted-foreground">Assign to one or more people. Leave empty to assign it to yourself.</p>
+                <p className="text-xs text-muted-foreground">
+                  {isCascadingTask
+                    ? 'The owner of this task. Each step below has its own assignee.'
+                    : 'Assign to one or more people. Leave empty to assign it to yourself.'}
+                </p>
               </div>
             )}
 
@@ -1696,24 +1837,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
                       {/* Row 2: optional meta — shown only when title has content */}
                       {newSubtaskTitle.trim() && (
                         <div className="flex gap-2 pl-1">
-                          <Select value={newSubtaskAssigneeId} onValueChange={setNewSubtaskAssigneeId}>
-                            <SelectTrigger className="h-8 text-xs w-[160px]">
-                              <SelectValue placeholder="Assign to..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value={session?.user?.id || 'self'}>
-                                Myself
-                              </SelectItem>
-                              {users.filter(u => u.id !== session?.user?.id).map((user) => (
-                                <SelectItem key={user.id} value={user.id}>
-                                  <div className="flex items-center gap-2">
-                                    <Avatar className="h-5 w-5"><AvatarFallback className="text-xs">{(user.name || user.email)?.[0]?.toUpperCase()}</AvatarFallback></Avatar>
-                                    {user.name || user.email}
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          {renderChildAssigneePicker(newSubtaskAssigneeId, setNewSubtaskAssigneeId)}
                           <DatePicker
                             date={newSubtaskDeadline ? new Date(newSubtaskDeadline) : undefined}
                             onSelect={d => setNewSubtaskDeadline(d ? format(d, 'yyyy-MM-dd') : '')}
@@ -1739,12 +1863,15 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
                                 <div className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
                                 <div className="min-w-0">
                                   <p className="text-sm font-medium break-words">{subtask.title}</p>
-                                  <p className="text-xs text-muted-foreground break-words">
-                                    Assigned to: {subtask.assignee?.name || subtask.assignee?.email || 'You'}
-                                    {subtask.dueDate && (
-                                      <span className="ml-2">• Due: {new Date(subtask.dueDate).toLocaleDateString()}</span>
+                                  <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-muted-foreground">
+                                    {renderChildAssigneePicker(childPickValue(subtask), (v) =>
+                                      setPendingSubtasks(prev => prev.map(x => x.id === subtask.id ? { ...x, assignee: undefined, ...childFromPick(v), ...(childFromPick(v).assignedRoleId ? {} : { assignedRoleId: undefined }) } : x)),
+                                      'h-7'
                                     )}
-                                  </p>
+                                    {subtask.dueDate && (
+                                      <span>Due: {new Date(subtask.dueDate).toLocaleDateString()}</span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                               <Button

@@ -121,6 +121,9 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
   }
   const [roles, setRoles] = useState<BoardRoleRow[]>([])
   const [rolesLoaded, setRolesLoaded] = useState(false)
+  // Everyone on the board (leaders and members) — NOT the reviewer candidates,
+  // which are leaders only.
+  const [roleCandidates, setRoleCandidates] = useState<Array<{ id: string; name?: string | null; email: string; boardRole: 'LEADER' | 'MEMBER' }>>([])
   const [canManageRoles, setCanManageRoles] = useState(false)
   const [newRoleName, setNewRoleName] = useState('')
   const [addingTo, setAddingTo] = useState<string | null>(null)
@@ -132,6 +135,7 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
       if (res.ok) {
         const d = await res.json()
         setRoles(d.roles || [])
+        setRoleCandidates(d.candidates || [])
         setCanManageRoles(!!d.permissions?.canManageBoard)
         setRolesLoaded(true)
       }
@@ -243,7 +247,7 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
   useEffect(() => {
     if (open && tab === 'forms' && !formsLoaded) loadForms()
     if (open && tab === 'reviewers' && !reviewersLoaded) loadReviewers()
-    if (open && tab === 'roles' && !rolesLoaded) { loadRoles(); if (!reviewersLoaded) loadReviewers() }
+    if (open && tab === 'roles' && !rolesLoaded) loadRoles()
     if (open && tab === 'template' && !templateLoaded) { loadTemplate(); if (!rolesLoaded) loadRoles() }
     if (!open) { setFormsLoaded(false); setReviewersLoaded(false); setRolesLoaded(false); setTemplateLoaded(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -616,9 +620,18 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
                         <Select value={newHolder} onValueChange={setNewHolder}>
                           <SelectTrigger className="h-7 w-44 text-xs"><SelectValue placeholder="Pick a person" /></SelectTrigger>
                           <SelectContent>
-                            {reviewerCandidates.length === 0
-                              ? <div className="px-2 py-1.5 text-xs text-muted-foreground">No one available</div>
-                              : reviewerCandidates.map((c) => <SelectItem key={c.id} value={c.id}>{c.name || c.email}</SelectItem>)}
+                            {(() => {
+                              const held = new Set(r.assignments.map((a) => a.user.id))
+                              const avail = roleCandidates.filter((c) => !held.has(c.id))
+                              return avail.length === 0
+                                ? <div className="px-2 py-1.5 text-xs text-muted-foreground">Everyone on this board already holds this role</div>
+                                : avail.map((c) => (
+                                    <SelectItem key={c.id} value={c.id}>
+                                      {c.name || c.email}
+                                      <span className="ml-1.5 text-[10px] text-muted-foreground">{c.boardRole === 'LEADER' ? 'Leader' : 'Member'}</span>
+                                    </SelectItem>
+                                  ))
+                            })()}
                           </SelectContent>
                         </Select>
                         <Button size="sm" className="h-7" disabled={!newHolder || busy} onClick={() => addHolder(r.id)}>Add</Button>

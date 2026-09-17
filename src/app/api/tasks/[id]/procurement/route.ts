@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { getTaskInvolvement } from '@/lib/task-access'
+import { getTaskInvolvement, canViewTask } from '@/lib/task-access'
 import { uploadToOSS } from '@/lib/oss'
 
 const BLOCKED_EXTENSIONS = [
@@ -24,7 +24,7 @@ export async function GET(
     }
 
     // Only people involved in the task may read its procurement records.
-    const { task, involved } = await getTaskInvolvement(params.id, session.user.id, session.user.role === 'ADMIN')
+    const { task, allowed: involved } = await canViewTask(params.id, session.user.id, session.user.role === 'ADMIN')
     if (!task) return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     if (!involved) return NextResponse.json({ error: 'You are not involved in this task' }, { status: 403 })
 

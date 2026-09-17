@@ -37,6 +37,21 @@ export async function POST(
     const user = await prisma.user.findFirst({ where: { id: userId, isActive: true }, select: { id: true } })
     if (!user) return NextResponse.json({ error: 'User not found or inactive' }, { status: 404 })
 
+    // Roles belong to a board, so only people on that board may hold one.
+    const onBoard = await prisma.kanbanBoard.count({
+      where: {
+        id: params.id,
+        OR: [
+          { ownerId: userId },
+          { members: { some: { userId } } },
+          { team: { members: { some: { userId } } } },
+        ],
+      },
+    })
+    if (onBoard === 0) {
+      return NextResponse.json({ error: 'That person is not on this board.' }, { status: 400 })
+    }
+
     const assignment = await prisma.boardRoleAssignment.create({
       data: { roleId: params.roleId, userId },
       include: { user: { select: { id: true, name: true, email: true, image: true } } },

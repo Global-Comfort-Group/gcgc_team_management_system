@@ -80,11 +80,16 @@ export async function GET(req: NextRequest) {
     const assigneeRows = await prisma.taskAssignee.findMany({
       where: {
         userId: { in: memberIds },
-        task: { isRecurring: false, status: { notIn: ['CANCELLED', 'BACKLOG'] } },
+        // Backlog rows count only when they are archived completed work.
+        task: {
+          isRecurring: false,
+          status: { not: 'CANCELLED' },
+          NOT: { status: 'BACKLOG', backlogPriorStatus: { not: 'COMPLETED' } },
+        },
       },
       select: {
         userId: true,
-        task: { select: { status: true, dueDate: true, memberSubmittedAt: true } },
+        task: { select: { status: true, backlogPriorStatus: true, dueDate: true, memberSubmittedAt: true } },
       },
     })
 
@@ -95,7 +100,7 @@ export async function GET(req: NextRequest) {
         s = { byStatus: {}, total: 0, overdue: 0 }
         statsByUser.set(row.userId, s)
       }
-      const st = row.task.status
+      const st = row.task.status === 'BACKLOG' ? 'COMPLETED' : row.task.status
       s.byStatus[st] = (s.byStatus[st] || 0) + 1
       s.total += 1
       if (isTaskOverdue(row.task)) {

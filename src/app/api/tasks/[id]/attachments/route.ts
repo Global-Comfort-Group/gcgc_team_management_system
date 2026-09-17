@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { canViewTask } from '@/lib/task-access'
 
 const addAttachmentSchema = z.object({
   fileUrl: z.string().url(),
@@ -49,6 +50,13 @@ export async function GET(
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    // This list had no authorization at all: any signed-in user could read any
+    // task's attachments, direct OSS URLs included. Same rule as the preview
+    // proxy now — anyone who can see the task.
+    const { task: viewTask, allowed } = await canViewTask(params.id, session.user.id, session.user.role === 'ADMIN')
+    if (!viewTask) return NextResponse.json({ error: 'Task not found' }, { status: 404 })
+    if (!allowed) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     const attachments = await prisma.taskAttachment.findMany({
       where: { taskId: params.id },

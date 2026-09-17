@@ -357,6 +357,8 @@ export default function TaskViewModal({
   const [showAddSubtask, setShowAddSubtask] = useState(false)
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('')
   const [newSubtaskAssigneeId, setNewSubtaskAssigneeId] = useState<string>('')
+  // Roles on the governing board, so a new subtask can be addressed to one.
+  const [subtaskRoles, setSubtaskRoles] = useState<Array<{ id: string; name: string; assignments: unknown[] }>>([])
   const [newSubtaskDeadline, setNewSubtaskDeadline] = useState<string>('')
   const [addingSubtask, setAddingSubtask] = useState(false)
   const [localSubtasks, setLocalSubtasks] = useState<Task['subtasks']>([])
@@ -518,6 +520,14 @@ export default function TaskViewModal({
           canRate: fullTask.viewerCanRate,
         })
         setReviewerBoard({ hasPool: !!fullTask.boardHasReviewerPool, boardId: fullTask.boardId ?? null })
+        if (fullTask.governingBoardId) {
+          fetch(`/api/boards/${fullTask.governingBoardId}/roles`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => setSubtaskRoles(d?.roles || []))
+            .catch(() => setSubtaskRoles([]))
+        } else {
+          setSubtaskRoles([])
+        }
         setTaskReviewerId(fullTask.reviewerId ?? null)
         if (fullTask.boardHasReviewerPool && fullTask.boardId) {
           fetch(`/api/boards/${fullTask.boardId}/reviewers`)
@@ -872,7 +882,10 @@ export default function TaskViewModal({
           parentId: task.id,
           priority: task.priority, // Inherit parent priority
           taskType: 'INDIVIDUAL',
-          assigneeId: newSubtaskAssigneeId || session?.user?.id, // Use selected assignee or default to current user
+          // "role:<id>" addresses the subtask to a board role instead of a person.
+          ...(newSubtaskAssigneeId.startsWith('role:')
+            ? { assignedRoleId: newSubtaskAssigneeId.slice(5) }
+            : { assigneeId: newSubtaskAssigneeId || session?.user?.id }), // default: current user
           dueDate: newSubtaskDeadline ? new Date(newSubtaskDeadline).toISOString() : undefined,
         })
       })
@@ -888,7 +901,8 @@ export default function TaskViewModal({
           progressPercentage: newTask.progressPercentage,
           dueDate: newTask.dueDate,
           assignee: newTask.assignee,
-        }])
+          assignedRole: newTask.assignedRole,
+        } as any])
         setNewSubtaskTitle('')
         setNewSubtaskAssigneeId('')
         setNewSubtaskDeadline('')
@@ -2035,7 +2049,7 @@ export default function TaskViewModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl lg:max-w-6xl max-h-[90vh] overflow-y-auto">
         {/* Simple Header */}
         <DialogHeader className="space-y-3 pr-8 overflow-hidden">
           {/* Back button — shown when navigated into a subtask */}
@@ -2209,44 +2223,6 @@ export default function TaskViewModal({
             </Badge>
           </div>
 
-          {/* Review banner — appears for the assigner / creator / admin when a
-              task is sitting in IN_REVIEW awaiting their decision. */}
-          {task.status === 'IN_REVIEW' && canCompleteTask && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5">
-              <div className="flex items-center gap-2 text-sm text-amber-900">
-                <Eye className="h-4 w-4 shrink-0" />
-                <span>
-                  This task is awaiting your review.
-                  {task.memberSubmittedAt && (
-                    <span className="text-amber-700 ml-1">
-                      Submitted {formatDistanceToNow(new Date(task.memberSubmittedAt), { addSuffix: true })}.
-                    </span>
-                  )}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleReviewDecision('sendBack')}
-                  disabled={savingReview !== null}
-                >
-                  <RotateCcw className="h-4 w-4 mr-1.5" />
-                  {savingReview === 'sendBack' ? 'Sending…' : 'Send back'}
-                </Button>
-                <Button
-                  size="sm"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                  onClick={() => handleReviewDecision('approve')}
-                  disabled={savingReview !== null}
-                >
-                  <CheckCircle2 className="h-4 w-4 mr-1.5" />
-                  {savingReview === 'approve' ? 'Approving…' : 'Approve'}
-                </Button>
-              </div>
-            </div>
-          )}
-
           {/* Progress — derived for parent tasks, editable for leaf tasks */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -2355,8 +2331,11 @@ export default function TaskViewModal({
           </div>
         </DialogHeader>
 
-        {/* Content */}
-        <div className="space-y-4">
+        {/* Content — details left, comments right on wide screens so the
+            discussion stays visible while reading the task (field report
+            2026-09). Stacks on narrow screens. */}
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-6 lg:items-start">
+        <div className="space-y-4 min-w-0">
           {/* Description */}
           {task.description && (
             <div className="space-y-2">
@@ -2767,6 +2746,11 @@ export default function TaskViewModal({
                               <span>Myself</span>
                             </div>
                           </SelectItem>
+                          {subtaskRoles.map((r) => (
+                            <SelectItem key={r.id} value={`role:${r.id}`} disabled={r.assignments.length === 0}>
+                              Role: {r.name}{r.assignments.length === 0 ? ' (nobody)' : ''}
+                            </SelectItem>
+                          ))}
                           {availableUsers
                             .filter(u => u.id !== session?.user?.id)
                             .map((user) => (
@@ -2920,7 +2904,7 @@ export default function TaskViewModal({
                         {isLocked ? (
                           <Lock className="h-4 w-4 text-slate-400 flex-shrink-0" />
                         ) : (
-                          subtask.assignee && (
+                          subtask.assignee ? (
                             <UserAvatar
                               userId={subtask.assignee.id}
                               image={subtask.assignee.image}
@@ -2929,7 +2913,13 @@ export default function TaskViewModal({
                               className="h-6 w-6"
                               fallbackClassName="text-xs"
                             />
-                          )
+                          ) : (subtask as any).assignedRole ? (
+                            // Addressed to a role nobody has claimed yet.
+                            <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground flex-shrink-0">
+                              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: (subtask as any).assignedRole.color }} />
+                              {(subtask as any).assignedRole.name}
+                            </span>
+                          ) : null
                         )}
                         {!isLocked && canManageSubtask && (
                           <button
@@ -2979,6 +2969,46 @@ export default function TaskViewModal({
                   />
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Review banner — appears for the assigner / creator / admin when a
+              task is sitting in IN_REVIEW awaiting their decision. Sits after
+              the subtasks so the reviewer decides having seen their progress
+              (field report 2026-09: it was at the very top, far from the work). */}
+          {task.status === 'IN_REVIEW' && canCompleteTask && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5">
+              <div className="flex items-center gap-2 text-sm text-amber-900">
+                <Eye className="h-4 w-4 shrink-0" />
+                <span>
+                  This task is awaiting your review.
+                  {task.memberSubmittedAt && (
+                    <span className="text-amber-700 ml-1">
+                      Submitted {formatDistanceToNow(new Date(task.memberSubmittedAt), { addSuffix: true })}.
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleReviewDecision('sendBack')}
+                  disabled={savingReview !== null}
+                >
+                  <RotateCcw className="h-4 w-4 mr-1.5" />
+                  {savingReview === 'sendBack' ? 'Sending…' : 'Send back'}
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={() => handleReviewDecision('approve')}
+                  disabled={savingReview !== null}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                  {savingReview === 'approve' ? 'Approving…' : 'Approve'}
+                </Button>
+              </div>
             </div>
           )}
 
@@ -3387,8 +3417,10 @@ export default function TaskViewModal({
             )}
           </div>
 
+          </div>
+
           {/* Enhanced Comments Section */}
-          <div className="border-t pt-6 space-y-4">
+          <div className="border-t pt-6 mt-4 space-y-4 lg:mt-0 lg:border-t-0 lg:pt-0 lg:border-l lg:pl-6 lg:sticky lg:top-0">
             <div className="flex items-center justify-between">
               <h4 className="font-medium text-gray-900 flex items-center gap-2">
                 <MessageSquare className="h-4 w-4" />
@@ -3549,7 +3581,7 @@ export default function TaskViewModal({
             </div>
 
             {/* Comments List with Reactions and Replies */}
-            <div className="space-y-4 max-h-[400px] overflow-y-auto">
+            <div className="space-y-4 max-h-[400px] lg:max-h-[55vh] overflow-y-auto">
               {loadingComments ? (
                 <div className="flex justify-center py-4">
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-400" />

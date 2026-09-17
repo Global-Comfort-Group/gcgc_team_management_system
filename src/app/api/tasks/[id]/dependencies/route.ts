@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { getTaskInvolvement } from '@/lib/task-access'
+import { getTaskInvolvement, canViewTask } from '@/lib/task-access'
 import { z } from 'zod'
 
 const addDependencySchema = z.object({
@@ -22,7 +22,7 @@ export async function GET(
 
     // Authorization: only people involved in this task may view/modify its
     // dependencies (prevents IDOR via a guessed/known task id).
-    const { task: accessTask, involved } = await getTaskInvolvement(params.id, session.user.id, session.user.role === 'ADMIN')
+    const { task: accessTask, allowed: involved } = await canViewTask(params.id, session.user.id, session.user.role === 'ADMIN')
     if (!accessTask) return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     if (!involved) return NextResponse.json({ error: 'You are not involved in this task' }, { status: 403 })
 

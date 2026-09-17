@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { authOptions } from '@/lib/auth'
 import { canManageTeam } from '@/lib/team-permissions'
+import { syncTeamMembersToLeaders } from '@/lib/team-leader-sync'
 
 const addMemberSchema = z.object({
   userId: z.string().min(1),
@@ -38,7 +39,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 // POST — add an existing active user to the team by reference (role optional, default MEMBER).
-// Does NOT modify the added user's profile and does NOT touch reportsToId/LeaderMembership.
+// Does NOT modify the added user's profile or reportsToId. It DOES add the new
+// member under the team board's leaders (LeaderMembership) — see team-leader-sync.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -65,6 +67,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       data: { teamId: params.id, userId, role },
       include: { user: { select: { id: true, name: true, email: true, image: true, role: true, positionTitle: true } } },
     })
+    // Best effort: the membership itself has succeeded either way.
+    await syncTeamMembersToLeaders(params.id).catch((e) => console.error('Leader sync failed:', e))
     return NextResponse.json({ member }, { status: 201 })
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
