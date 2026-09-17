@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { authOptions } from '@/lib/auth'
 import { canManageTeam, wouldLeaveTeamLeaderless } from '@/lib/team-permissions'
+import { syncTeamMembersToLeaders } from '@/lib/team-leader-sync'
 
 const patchSchema = z.object({ role: z.enum(['LEADER', 'MEMBER']) })
 
@@ -43,6 +44,10 @@ export async function PATCH(
       data: { role },
       include: { user: { select: { id: true, name: true, email: true, image: true, role: true, positionTitle: true } } },
     })
+    // A new team leader picks up the board's people (additive only).
+    if (role === 'LEADER') {
+      await syncTeamMembersToLeaders(params.id).catch((e) => console.error('Leader sync failed:', e))
+    }
     return NextResponse.json({ member })
   } catch (error) {
     if (error instanceof z.ZodError) {

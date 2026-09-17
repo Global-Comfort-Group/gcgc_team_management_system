@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { canViewTask } from '@/lib/task-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,9 +20,8 @@ export const dynamic = 'force-dynamic'
  * It is a proxy, not a redirect: a redirect would hand the browser the same OSS
  * URL and the same header, achieving nothing.
  *
- * Access mirrors the attachments route exactly — anyone involved in the task.
- * Serving a file needs the same permission as listing it, and the URL is
- * guessable-adjacent (task id + attachment id), so it cannot be left open.
+ * Access is canViewTask (src/lib/task-access.ts) — the same rule as listing
+ * the attachments. The URL is guessable-adjacent, so it is never left open.
  */
 
 // Exactly what isPreviewable() in src/lib/attachment-preview.ts offers. Keeping
@@ -29,29 +29,6 @@ export const dynamic = 'force-dynamic'
 // is surface area with no benefit.
 const PREVIEWABLE = [/^image\//, /^application\/pdf$/]
 
-async function isInvolved(taskId: string, userId: string, isAdmin: boolean) {
-  const task = await prisma.task.findUnique({
-    where: { id: taskId },
-    select: {
-      creatorId: true,
-      assigneeId: true,
-      assignedById: true,
-      assignees: { select: { userId: true } },
-      teamMembers: { select: { userId: true } },
-      collaborators: { select: { userId: true } },
-    },
-  })
-  if (!task) return false
-  return (
-    isAdmin ||
-    task.creatorId === userId ||
-    task.assigneeId === userId ||
-    task.assignedById === userId ||
-    task.assignees.some(a => a.userId === userId) ||
-    task.teamMembers.some(m => m.userId === userId) ||
-    task.collaborators.some(c => c.userId === userId)
-  )
-}
 
 export async function GET(
   _req: NextRequest,
@@ -66,7 +43,11 @@ export async function GET(
   })
   if (!attachment) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  if (!(await isInvolved(params.id, session.user.id, session.user.role === 'ADMIN'))) {
+  // Anyone who can see the task may preview its files. This was limited to
+  // people directly on the task, so board members opening a teammate's card got
+  // "Error: Forbidden" in the preview (field report 2026-09).
+  const { allowed } = await canViewTask(params.id, session.user.id, session.user.role === 'ADMIN')
+  if (!allowed) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

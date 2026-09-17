@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRequestSession } from '@/lib/api-auth'
 import { prisma } from '@/lib/prisma'
 import { OVERDUE_EXCLUDED_STATUSES, isTaskOverdue } from '@/lib/overdue'
-import { myTasksWhere, teamTasksWhere, taskInvolvementOr } from '@/lib/task-scope'
+import { myTasksWhere, teamTasksWhere, taskInvolvementOr, COMPLETED_WORK_WHERE } from '@/lib/task-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
       prisma.task.count({
         where: {
           ...myScope,
-          status: 'COMPLETED',
+          AND: [COMPLETED_WORK_WHERE],
           updatedAt: {
             gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
           }
@@ -216,13 +216,13 @@ export async function GET(req: NextRequest) {
       // My open tasks grouped by priority (for the priority bar)
       prisma.task.groupBy({
         by: ['priority'],
-        where: { ...myScope, status: { notIn: ['COMPLETED', 'CANCELLED'] } },
+        where: { ...myScope, status: { notIn: ['COMPLETED', 'CANCELLED', 'BACKLOG'] } },
         _count: { _all: true },
       }),
 
       // My completions over the last 8 weeks (bucketed in JS for the trend line)
       prisma.task.findMany({
-        where: { ...myScope, status: 'COMPLETED', updatedAt: { gte: trendStart } },
+        where: { ...myScope, AND: [COMPLETED_WORK_WHERE], updatedAt: { gte: trendStart } },
         select: { updatedAt: true },
       }),
 

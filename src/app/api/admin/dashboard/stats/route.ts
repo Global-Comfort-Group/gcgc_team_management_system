@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/auth/get-admin-session'
 import { prisma } from '@/lib/prisma'
+import { COMPLETED_WORK_WHERE } from '@/lib/task-scope'
 import { UserRole } from '@prisma/client'
 import { OVERDUE_EXCLUDED_STATUSES, isTaskOverdue } from '@/lib/overdue'
 
@@ -68,7 +69,7 @@ export async function GET(req: NextRequest) {
         where: { isActive: true }
       }),
       prisma.task.count({ where: { isRecurring: { not: true } } }),
-      prisma.task.count({ where: { isRecurring: { not: true }, status: 'COMPLETED' } }),
+      prisma.task.count({ where: { isRecurring: { not: true }, AND: [COMPLETED_WORK_WHERE] } }),
       prisma.task.count({ where: { isRecurring: { not: true }, status: 'IN_PROGRESS' } }),
       prisma.task.count({ where: { isRecurring: { not: true }, status: 'TODO' } }),
       (async () => {

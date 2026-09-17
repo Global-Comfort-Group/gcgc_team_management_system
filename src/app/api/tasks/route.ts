@@ -14,11 +14,15 @@ import { taskInvolvementOr } from '@/lib/task-scope'
 import { broadcastTaskChange } from '@/lib/task-events'
 import { allocateTicketNumber, applyManualTicketNumber, TicketNumberError } from '@/lib/ticket-allocate'
 import { resolveRoleAddressing } from '@/lib/board-roles'
+import { maybeArchiveStaleCompletedTasks } from '@/lib/auto-archive'
 
 const cascadeStepSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().optional(),
   assigneeId: z.string().optional().nullable(),
+  // A step can be addressed to a board role instead of a person (field report
+  // 2026-09). Same addressing rule as the task itself.
+  assignedRoleId: z.string().optional().nullable(),
   dueDate: z.string().datetime().optional().nullable(),
 })
 
@@ -106,6 +110,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'User role is required' }, { status: 403 })
     }
     
+    // Completed → Backlog after 5 days. Throttled and fire-and-forget.
+    maybeArchiveStaleCompletedTasks()
+
     if (!hasPermission(session.user.role, PERMISSIONS.RESOURCES.TASK, 'read')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
@@ -823,33 +830,41 @@ export async function POST(req: NextRequest) {
     // Create task with transaction for related data
     const task = await prisma.$transaction(async (tx) => {
       // Verify parent task exists if parentId provided
+      // Subtasks carry no boardId of their own; their roles come from the
+      // parent's board, so that is the board a subtask's role must belong to.
+      let governingBoardId: string | null = link.boardId
       if (parentId) {
         const parentTask = await tx.task.findUnique({
           where: { id: parentId },
-          select: { id: true, creatorId: true }
+          select: { id: true, creatorId: true, boardId: true, parent: { select: { boardId: true } } }
         })
         if (!parentTask) {
           throw new Error('Parent task not found')
         }
+        governingBoardId = governingBoardId ?? parentTask.boardId ?? parentTask.parent?.boardId ?? null
+      }
+
+      const resolveRole = async (roleId: string): Promise<string | null> => {
+        const role = await tx.boardRole.findUnique({
+          where: { id: roleId },
+          select: { name: true, boardId: true, assignments: { select: { userId: true } } },
+        })
+        // A role is only meaningful on its own board. Without a governing board
+        // there is nothing to check it against, so refuse rather than accept
+        // any role from anywhere.
+        if (!role || !governingBoardId || role.boardId !== governingBoardId) {
+          throw new RoleAddressingError('That role does not belong to this task\'s board.')
+        }
+        const outcome = resolveRoleAddressing({ name: role.name, holderIds: role.assignments.map(a => a.userId) })
+        if (outcome.kind === 'reject') throw new RoleAddressingError(outcome.reason)
+        return outcome.kind === 'assign' ? outcome.userId : null
       }
 
       // Role addressing, same rules as PATCH: one holder is a shortcut so assign
       // them; several leaves it claimable; none would be invisible work and is
       // refused. Resolved here so a create cannot bypass the rule the edit path
       // enforces.
-      let roleAssigneeId: string | null = null
-      if (assignedRoleId) {
-        const role = await tx.boardRole.findUnique({
-          where: { id: assignedRoleId },
-          select: { name: true, boardId: true, assignments: { select: { userId: true } } },
-        })
-        if (!role || (link.boardId && role.boardId !== link.boardId)) {
-          throw new RoleAddressingError('That role does not belong to this task\'s board.')
-        }
-        const outcome = resolveRoleAddressing({ name: role.name, holderIds: role.assignments.map(a => a.userId) })
-        if (outcome.kind === 'reject') throw new RoleAddressingError(outcome.reason)
-        if (outcome.kind === 'assign') roleAssigneeId = outcome.userId
-      }
+      const roleAssigneeId: string | null = assignedRoleId ? await resolveRole(assignedRoleId) : null
 
       // Ticket number. Allocated inside this transaction so two concurrent
       // creates cannot be handed the same number; a manual value is validated
@@ -921,7 +936,15 @@ export async function POST(req: NextRequest) {
         })
       }
 
-      await setTaskAssignees(tx, newTask.id, [assigneeId || session.user.id, ...teamMemberIds, ...collaboratorIds])
+      // A role-addressed task lists only its resolved holder (if any) — never
+      // the creator, which is what made "Assigned To" show up on role tasks.
+      await setTaskAssignees(
+        tx,
+        newTask.id,
+        assignedRoleId
+          ? [roleAssigneeId]
+          : [assigneeId || session.user.id, ...teamMemberIds, ...collaboratorIds],
+      )
       await setTaskFieldValues(tx, newTask.id, fieldValues)
 
       // Persist file attachments on the new task
@@ -936,6 +959,9 @@ export async function POST(req: NextRequest) {
         for (let i = 0; i < cascadeSteps.length; i++) {
           const step = cascadeSteps[i]
           const stepOrder = i + 1
+          const stepAssigneeId = step.assignedRoleId
+            ? await resolveRole(step.assignedRoleId)
+            : (step.assigneeId || null)
           const cascadeStep = await tx.task.create({
             data: {
               title: step.title,
@@ -947,7 +973,8 @@ export async function POST(req: NextRequest) {
               isCascading: false,
               dueDate: step.dueDate ? new Date(step.dueDate) : finalDueDate,
               startDate: step.dueDate ? new Date(step.dueDate) : finalStartDate,
-              assigneeId: step.assigneeId || null,
+              assigneeId: stepAssigneeId,
+              assignedRoleId: step.assignedRoleId || null,
               creatorId: session.user.id,
               assignedById: session.user.id,
               parentId: newTask.id,
@@ -955,7 +982,7 @@ export async function POST(req: NextRequest) {
               isLocked: stepOrder > 1, // first step is unlocked, rest are locked
             },
           })
-          await setTaskAssignees(tx, cascadeStep.id, [step.assigneeId])
+          await setTaskAssignees(tx, cascadeStep.id, [stepAssigneeId])
         }
       }
 
@@ -1127,24 +1154,23 @@ export async function POST(req: NextRequest) {
       // For cascading tasks, notify the first step's assignee
       if (taskType === 'CASCADING' && cascadeSteps.length > 0) {
         const firstStep = cascadeSteps[0]
-        if (firstStep.assigneeId && firstStep.assigneeId !== session.user.id) {
-          try {
-            const firstStepTask = await prisma.task.findFirst({
-              where: { parentId: task.id, cascadeOrder: 1 },
-              select: { id: true }
-            })
-            if (firstStepTask) {
-              await notifySubtaskAssigned(
-                firstStep.assigneeId,
-                firstStepTask.id,
-                firstStep.title,
-                title,
-                assignerName
-              )
-            }
-          } catch (notificationError) {
-            console.error('Error sending cascade step 1 notification:', notificationError)
+        try {
+          // Read the stored assignee: a role-addressed step resolves on create.
+          const firstStepTask = await prisma.task.findFirst({
+            where: { parentId: task.id, cascadeOrder: 1 },
+            select: { id: true, assigneeId: true }
+          })
+          if (firstStepTask?.assigneeId && firstStepTask.assigneeId !== session.user.id) {
+            await notifySubtaskAssigned(
+              firstStepTask.assigneeId,
+              firstStepTask.id,
+              firstStep.title,
+              title,
+              assignerName
+            )
           }
+        } catch (notificationError) {
+          console.error('Error sending cascade step 1 notification:', notificationError)
         }
       }
     }

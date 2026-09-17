@@ -15,6 +15,21 @@ import type { Prisma } from '@prisma/client'
 export const CLOSED_TASK_STATUSES = ['COMPLETED', 'CANCELLED', 'BACKLOG'] as const
 
 /**
+ * "Completed work", including completed tasks that were archived to the
+ * Backlog — manually or by the 5-day auto-archive (src/lib/auto-archive.ts).
+ * Counting `status: 'COMPLETED'` alone would make finished work vanish from
+ * every completion figure five days after it was done.
+ *
+ * Contains an OR, so combine it through `AND: [...]`, never by spreading.
+ */
+export const COMPLETED_WORK_WHERE: Prisma.TaskWhereInput = {
+  OR: [
+    { status: 'COMPLETED' },
+    { status: 'BACKLOG', backlogPriorStatus: 'COMPLETED' },
+  ],
+}
+
+/**
  * The involvement clause `GET /api/tasks` applies for non-admins on the
  * "All Tasks" view: a user has a task if they are its assignee, its creator, a
  * listed team member or collaborator — or if one of its unlocked subtasks is

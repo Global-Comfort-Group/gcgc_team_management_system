@@ -975,8 +975,9 @@ export default function TasksPage() {
     try {
       // Extract subtasks from data
       const { subtasks, ...mainTaskData } = taskData
-      // Inject active board id
-      if (activeBoardId) {
+      // The form may have picked a board (or explicitly "No board" = null).
+      // Only when it didn't choose does the open tab decide.
+      if (!('boardId' in mainTaskData) && activeBoardId) {
         mainTaskData.boardId = activeBoardId
       }
 
@@ -999,7 +1000,7 @@ export default function TasksPage() {
 
       // Create subtasks if any
       if (subtasks && subtasks.length > 0 && parentTaskId) {
-        const subtaskPromises = subtasks.map((subtask: { title: string; assigneeId: string }) =>
+        const subtaskPromises = subtasks.map((subtask: { title: string; assigneeId: string | null; assignedRoleId?: string | null }) =>
           fetch('/api/tasks', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1009,10 +1010,20 @@ export default function TasksPage() {
               priority: mainTaskData.priority,
               taskType: 'INDIVIDUAL',
               assigneeId: subtask.assigneeId,
+              // Resolved against the parent's board on the server.
+              assignedRoleId: subtask.assignedRoleId || undefined,
             }),
           })
         )
-        await Promise.all(subtaskPromises)
+        const subtaskResults = await Promise.all(subtaskPromises)
+        const failedSubtasks = subtaskResults.filter(r => !r.ok).length
+        if (failedSubtasks > 0) {
+          toast({
+            title: `${failedSubtasks} subtask${failedSubtasks === 1 ? '' : 's'} could not be created`,
+            description: 'A role with nobody in it cannot take work. Add them from the task.',
+            variant: 'destructive',
+          })
+        }
       }
 
       // Refresh tasks from server to ensure we get the latest data

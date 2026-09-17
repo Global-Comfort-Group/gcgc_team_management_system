@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRequestSession } from '@/lib/api-auth'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
+import { CLOSED_TASK_STATUSES, COMPLETED_WORK_WHERE } from '@/lib/task-scope'
 import { resolveLeaderRoster, annotateMemberSource } from '@/lib/leader-roster'
 
 export const dynamic = 'force-dynamic'
@@ -41,7 +42,7 @@ export async function GET(req: NextRequest) {
           id: true, email: true, firstName: true, lastName: true,
           name: true, image: true, role: true, positionTitle: true,
           isActive: true, createdAt: true, reportsToId: true,
-          _count: { select: { assignedTasks: { where: { status: { notIn: ['COMPLETED', 'CANCELLED'] } } } } }
+          _count: { select: { assignedTasks: { where: { status: { notIn: [...CLOSED_TASK_STATUSES] } } } } }
         },
         orderBy: [{ name: 'asc' }, { email: 'asc' }]
       })
@@ -73,7 +74,7 @@ export async function GET(req: NextRequest) {
         _count: {
           select: {
             assignedTasks: {
-              where: { status: { notIn: ['COMPLETED', 'CANCELLED'] } }
+              where: { status: { notIn: [...CLOSED_TASK_STATUSES] } }
             }
           }
         }
@@ -91,7 +92,7 @@ export async function GET(req: NextRequest) {
       prisma.task.count({
         where: {
           assigneeId: { in: memberIds },
-          status: { notIn: ['COMPLETED', 'CANCELLED'] }
+          status: { notIn: [...CLOSED_TASK_STATUSES] }
         }
       }),
       
@@ -99,7 +100,7 @@ export async function GET(req: NextRequest) {
       prisma.task.count({
         where: {
           assigneeId: { in: memberIds },
-          status: 'COMPLETED',
+          AND: [COMPLETED_WORK_WHERE],
           updatedAt: {
             gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
           }
@@ -111,7 +112,7 @@ export async function GET(req: NextRequest) {
         where: {
           assigneeId: { in: memberIds },
           dueDate: { lt: (() => { const d = new Date(); d.setHours(0,0,0,0); return d })() },
-          status: { notIn: ['COMPLETED', 'CANCELLED'] }
+          status: { notIn: [...CLOSED_TASK_STATUSES] }
         }
       })
     ])
@@ -213,7 +214,7 @@ export async function POST(req: NextRequest) {
             select: {
               assignedTasks: {
                 where: {
-                  status: { notIn: ['COMPLETED', 'CANCELLED'] }
+                  status: { notIn: [...CLOSED_TASK_STATUSES] }
                 }
               }
             }
