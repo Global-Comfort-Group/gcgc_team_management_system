@@ -1,0 +1,12 @@
+# These files are copies of things that run on a Linux server. A Windows
+# checkout must not rewrite them to CRLF: update.sh.local-server is a
+# #!/bin/bash script, and a CRLF copy placed on the server fails with
+# "bad interpreter: /bin/bash^M". Checking this repo out on Windows before this
+# pin produced 186 CR bytes in that file.
+*.sh            text eol=lf
+*.yml           text eol=lf
+*.conf          text eol=lf
+Caddyfile*      text eol=lf
+Dockerfile*     text eol=lf
+dockerignore*   text eol=lf
+update.sh*      text eol=lf

@@ -1,0 +1,19 @@
+FROM docker.io/library/node:20-bookworm-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# NEXT_PUBLIC_* are inlined at BUILD time → must be present as build args.
+ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY
+ARG NEXT_PUBLIC_TMS_CHAT_URL
+ENV NEXT_PUBLIC_VAPID_PUBLIC_KEY=$NEXT_PUBLIC_VAPID_PUBLIC_KEY \
+    NEXT_PUBLIC_TMS_CHAT_URL=$NEXT_PUBLIC_TMS_CHAT_URL
+
+COPY . .
+RUN npm run build          # = prisma generate && next build
+
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["npm", "run", "start"]   # = prisma migrate deploy && node server.js

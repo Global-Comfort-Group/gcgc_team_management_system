@@ -48,3 +48,8 @@ tms.local {
 http:// {
 	reverse_proxy app:3000
 }
+
+# Public hostname. Caddy obtains and auto-renews a real Lets Encrypt cert.
+tms.hotelsogo.com {
+	reverse_proxy app:3000
+}
