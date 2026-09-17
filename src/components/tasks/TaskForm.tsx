@@ -997,7 +997,10 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
     }
     setAppliedTemplate(next)
     if (!next) return
-    if (next.titlePrefix && !form.getValues('title')?.trim()) form.setValue('title', next.titlePrefix)
+    if (next.titlePrefix && !form.getValues('title')?.trim()) {
+      // Re-validate so a stale "Title is required" doesn't linger once filled.
+      form.setValue('title', next.titlePrefix, { shouldValidate: form.formState.isSubmitted })
+    }
     if (next.description && !form.getValues('description')?.trim()) form.setValue('description', next.description)
     if (next.priority) form.setValue('priority', next.priority)
     if (next.taskWeight) form.setValue('taskWeight', next.taskWeight)
