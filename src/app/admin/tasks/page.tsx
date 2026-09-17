@@ -350,12 +350,10 @@ export default function AdminTasksPage() {
           : 'Task created successfully'
       })
     } catch (error) {
+      // TaskForm shows the error and keeps the user's input; rethrow so it
+      // doesn't close and wipe the form as if the task had been created.
       console.error('Error creating task:', error)
-      toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to create task',
-        variant: 'destructive'
-      })
+      throw error
     }
   }
 
@@ -389,11 +387,7 @@ export default function AdminTasksPage() {
       })
     } catch (error) {
       console.error('Error updating task:', error)
-      toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to update task',
-        variant: 'destructive'
-      })
+      throw error
     }
   }
 

@@ -1040,12 +1040,10 @@ export default function TasksPage() {
           : 'Task created successfully'
       })
     } catch (error) {
+      // TaskForm shows the error and keeps the user's input; rethrow so it
+      // doesn't close and wipe the form as if the task had been created.
       console.error('Error creating task:', error)
-      toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to create task',
-        variant: 'destructive'
-      })
+      throw error
     }
   }
 
@@ -1113,11 +1111,7 @@ export default function TasksPage() {
       })
     } catch (error) {
       console.error('Error updating task:', error)
-      toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to update task',
-        variant: 'destructive'
-      })
+      throw error
     }
   }
 
@@ -1841,14 +1835,14 @@ export default function TasksPage() {
                                     <h4 className="font-semibold text-sm leading-snug text-gray-900 line-clamp-2">
                                       {task.title}
                                     </h4>
-                                    {/* Addressed to a role but nobody has taken it yet. Once
-                                        someone claims it the assignee avatar says who has it. */}
-                                    {task.assignedRole && !task.assignee && (
+                                    {/* Addressed to a role. New role tasks are assigned to every
+                                        holder; "Unclaimed" only remains on older ones nobody took. */}
+                                    {task.assignedRole && (
                                       <span
                                         className="inline-flex items-center gap-1 mt-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
                                         style={{ borderColor: task.assignedRole.color, color: task.assignedRole.color }}
                                       >
-                                        Unclaimed · {task.assignedRole.name}
+                                        {task.assignee ? 'Role' : 'Unclaimed'} · {task.assignedRole.name}
                                       </span>
                                     )}
                                   </div>
@@ -2202,7 +2196,7 @@ export default function TasksPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><Archive className="h-5 w-5 text-slate-500" /> Backlog</DialogTitle>
-            <DialogDescription>Archived tasks, hidden from the board. Restore one to move it back to To Do.</DialogDescription>
+            <DialogDescription>Archived tasks, hidden from the board. Completed tasks move here after 5 days. Restore one to put it back where it was.</DialogDescription>
           </DialogHeader>
           {(() => {
             const backlog = tasks.filter(t => t.status === 'BACKLOG')

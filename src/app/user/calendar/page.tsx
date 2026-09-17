@@ -439,8 +439,7 @@ export default function CalendarPage() {
       setIsNewTaskFormOpen(false)
       fetchCalendarData()
     } catch (err) {
-      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to create task', variant: 'destructive' })
-      throw err
+      throw err // TaskForm shows the error and keeps the form open
     }
   }
 

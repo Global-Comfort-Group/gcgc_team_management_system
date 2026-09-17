@@ -190,47 +190,71 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
     await loadRoles()
   }, 'Could not remove from role')
 
-  // Per-board defaults for new tasks. Defaults only — the create form leaves
-  // every value editable.
+  // Per-board task templates — several named ones ("PO Template", "PR
+  // Template"…). Defaults only: the create form leaves every value editable.
   type Template = {
+    id?: string; name?: string
     titlePrefix?: string | null; description?: string | null
     priority?: string | null; taskWeight?: number | null; slaHours?: number | null
     defaultRoleId?: string | null; checklist?: Array<{ title: string }> | null
   }
-  const [template, setTemplate] = useState<Template>({})
+  const [templates, setTemplates] = useState<Template[]>([])
+  const [template, setTemplate] = useState<Template>({ name: '' })
   const [templateLoaded, setTemplateLoaded] = useState(false)
   const [checklistText, setChecklistText] = useState('')
+  const [templateNameError, setTemplateNameError] = useState('')
+
+  const editTemplate = (t: Template) => {
+    setTemplate(t)
+    setChecklistText((t.checklist || []).map((c) => c.title).join('\n'))
+    setTemplateNameError('')
+  }
 
   const loadTemplate = async () => {
     try {
       const res = await fetch(`/api/boards/${boardId}/template`)
       if (res.ok) {
-        const d = await res.json()
-        const t = d.template || {}
-        setTemplate(t)
-        setChecklistText((t.checklist || []).map((c: any) => c.title).join('\n'))
+        const list: Template[] = (await res.json()).templates || []
+        setTemplates(list)
+        editTemplate(list[0] ?? { name: '' })
         setTemplateLoaded(true)
       }
     } catch { /* ignore */ }
   }
 
-  const saveTemplate = () => guard(async () => {
-    const checklist = checklistText.split('\n').map(l => l.trim()).filter(Boolean).map(title => ({ title }))
-    const res = await fetch(`/api/boards/${boardId}/template`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...template, checklist: checklist.length ? checklist : null }),
-    })
-    if (!res.ok) throw new Error((await res.json().catch(() => ({} as any))).error || 'Failed to save')
-    await loadTemplate()
-    toast({ title: 'Template saved' })
-  }, 'Could not save template')
+  const saveTemplate = () => {
+    if (!template.name?.trim()) {
+      setTemplateNameError('Give the template a name, e.g. "PO Template".')
+      document.getElementById('template-name')?.focus()
+      return
+    }
+    return guard(async () => {
+      const checklist = checklistText.split('\n').map(l => l.trim()).filter(Boolean).map(title => ({ title }))
+      const { id, ...rest } = template
+      const res = await fetch(id ? `/api/boards/${boardId}/template/${id}` : `/api/boards/${boardId}/template`, {
+        method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: rest.name, titlePrefix: rest.titlePrefix, description: rest.description,
+          priority: rest.priority, taskWeight: rest.taskWeight, slaHours: rest.slaHours,
+          defaultRoleId: rest.defaultRoleId, checklist: checklist.length ? checklist : null,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({} as any))).error || 'Failed to save')
+      toast({ title: 'Template saved', description: `"${rest.name}" is ready to pick in New Task.` })
+      // Saving finishes the job — close rather than leave the form sitting open
+      // (field report 2026-09).
+      setTemplateLoaded(false)
+      onOpenChange(false)
+    }, 'Could not save template')
+  }
 
-  const clearTemplate = () => guard(async () => {
-    const res = await fetch(`/api/boards/${boardId}/template`, { method: 'DELETE' })
-    if (!res.ok) throw new Error('Failed to clear')
-    setTemplate({}); setChecklistText('')
+  const deleteTemplate = () => guard(async () => {
+    if (!template.id) { editTemplate(templates[0] ?? { name: '' }); return }
+    const res = await fetch(`/api/boards/${boardId}/template/${template.id}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('Failed to delete')
+    toast({ title: 'Template deleted' })
     await loadTemplate()
-  }, 'Could not clear template')
+  }, 'Could not delete template')
 
   const loadForms = async () => {
     try {
@@ -388,7 +412,7 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
           {(['statuses', 'fields', 'forms', 'reviewers', 'roles', 'template'] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-3 h-7 rounded text-xs font-semibold capitalize ${tab === t ? 'bg-blue-600 text-white' : 'text-slate-600 hover:text-slate-900'}`}>
-              {t}
+              {t === 'template' ? 'templates' : t}
             </button>
           ))}
         </div>
@@ -673,9 +697,32 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
               {templateLoaded && (
                 <>
                   <p className="text-[11px] text-muted-foreground">
-                    Defaults for new tasks on this board. Everything here is pre-filled into the create form and
-                    stays editable — nothing is enforced.
+                    Templates people can pick when creating a task on this board. Everything is pre-filled into
+                    the create form and stays editable — nothing is enforced.
                   </p>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {templates.map(t => (
+                      <button key={t.id} type="button" onClick={() => editTemplate(t)}
+                        className={`h-7 px-2.5 rounded-full border text-xs font-medium ${template.id === t.id ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white text-slate-700 hover:border-slate-400'}`}>
+                        {t.name}
+                      </button>
+                    ))}
+                    <button type="button" onClick={() => editTemplate({ name: '' })}
+                      className={`h-7 px-2.5 rounded-full border border-dashed text-xs font-medium inline-flex items-center gap-1 ${!template.id ? 'border-blue-600 text-blue-700 bg-blue-50' : 'text-slate-600 hover:border-slate-400'}`}>
+                      <Plus className="h-3 w-3" /> New template
+                    </button>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="template-name" className="text-xs">Template name *</Label>
+                    <Input id="template-name" className={`h-8 ${templateNameError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                      placeholder="e.g. PO Template" maxLength={60}
+                      value={template.name ?? ''}
+                      aria-invalid={!!templateNameError}
+                      onChange={(e) => { setTemplate({ ...template, name: e.target.value }); setTemplateNameError('') }} />
+                    {templateNameError && <p className="text-[11px] text-red-600">{templateNameError}</p>}
+                  </div>
 
                   <div className="space-y-1.5">
                     <Label className="text-xs">Title starts with</Label>
@@ -734,7 +781,7 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
                     <Textarea rows={4} placeholder={'Check the room\nRestock supplies\nSign off'}
                       value={checklistText} onChange={(e) => setChecklistText(e.target.value)} />
                     <p className="text-[10px] text-muted-foreground">
-                      These are added as subtasks on every new task, unassigned.
+                      Added as subtasks (or steps on a cascading task), assigned the same as the task.
                     </p>
                   </div>
                 </>
@@ -742,12 +789,14 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
             </div>
 
             <div className="flex items-center gap-2 border-t pt-3">
-              <Button onClick={saveTemplate} disabled={busy}>
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save template'}
+              <Button onClick={saveTemplate} disabled={busy || !templateLoaded}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : template.id ? 'Save template' : 'Create template'}
               </Button>
-              <Button variant="ghost" onClick={clearTemplate} disabled={busy} className="text-red-600 hover:text-red-700">
-                Clear
-              </Button>
+              {template.id && (
+                <Button variant="ghost" onClick={deleteTemplate} disabled={busy} className="text-red-600 hover:text-red-700">
+                  Delete
+                </Button>
+              )}
             </div>
           </>
         )}
