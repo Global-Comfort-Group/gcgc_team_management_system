@@ -149,8 +149,11 @@ export default function EvaluationsPage() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/users?limit=100&isActive=true')
-      if (res.ok) { const d = await res.json(); setUsers(d.users || []) }
+      // A leader evaluates only their own team members (reports-to + teams they
+      // lead); an admin can evaluate anyone.
+      const isLeader = session?.user?.role === 'LEADER'
+      const res = await fetch(isLeader ? '/api/user/team-members' : '/api/users?limit=100&isActive=true')
+      if (res.ok) { const d = await res.json(); setUsers((isLeader ? d.members : d.users) || []) }
       else { toast({ title: 'Failed to load team members', variant: 'destructive' }) }
     } catch (e) {
       console.error(e)

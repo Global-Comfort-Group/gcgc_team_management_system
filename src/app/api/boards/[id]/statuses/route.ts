@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { canManageBoard } from '@/lib/board-statuses'
+import { canManageBoard, ensureDefaultBoardStatuses } from '@/lib/board-statuses'
 import { z } from 'zod'
 
 const createSchema = z.object({
@@ -35,6 +35,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   try {
     const { name, category, color } = createSchema.parse(await req.json())
+
+    // A board still on the built-in columns gets its four defaults first, so
+    // a custom status is added alongside them rather than replacing them.
+    await ensureDefaultBoardStatuses(prisma, params.id)
 
     const last = await prisma.boardStatus.findFirst({
       where: { boardId: params.id },

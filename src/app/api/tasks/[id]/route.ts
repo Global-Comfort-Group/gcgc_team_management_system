@@ -9,7 +9,6 @@ import { autoSyncTask, deleteSyncedTask } from '@/lib/calendar-sync-helper'
 import { getNextOccurrenceDate } from '@/lib/recurring'
 import { setTaskAssignees } from '@/lib/task-assignees'
 import { resolveCanRateWorkQuality } from '@/lib/task-rating'
-import { resolveReviewerGate } from '@/lib/board-reviewer'
 import { setTaskFieldValues } from '@/lib/task-fields'
 import { notifyTaskAssigned, notifyTaskUpdated, notifyTaskCompleted, notifyTaskSubmittedForReview, notifySubtaskAssigned } from '@/lib/notifications'
 import { broadcastTaskChange, resolveTaskAudience, emitTaskChanged } from '@/lib/task-events'
@@ -19,7 +18,7 @@ import { allocateTicketNumber } from '@/lib/ticket-allocate'
 import { applyManualTicketNumber, TicketNumberError } from '@/lib/ticket-allocate'
 import { resolveRoleAddressing, NO_PERMISSIONS } from '@/lib/board-roles'
 import { loadBoardRoleContext } from '@/lib/board-roles-server'
-import { userCanAccessBoard } from '@/lib/board-access'
+import { userCanAccessBoard, userIsLeaderInBoard } from '@/lib/board-access'
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).max(100).optional(),
@@ -281,17 +280,31 @@ export async function GET(
     const isOwnerView = task.board
       ? task.board.ownerId === session.user.id
       : task.creatorId === session.user.id
-    const viewerCanComplete = canFinalizeTask({
-      isAdmin: session.user.role === 'ADMIN',
-      isBoardLeader: session.user.role === 'LEADER' && isTeamLeader(viewerTeamRole),
-      isOwner: isOwnerView,
-      isParentLeader: isParentLeaderView,
-    })
+    // The board that governs this task: its own, or its parent's for a subtask
+    // / cascade step (those carry no boardId of their own).
+    const governingBoardId = task.boardId ?? task.parent?.boardId ?? null
+    // Every LEADER working in the board leads its tasks — not only the one
+    // holding the team's LEADER role, and not only on tasks that carry a teamId
+    // (old tasks don't). Field reports 2026-09.
+    const isBoardLeaderView =
+      (session.user.role === 'LEADER' && isTeamLeader(viewerTeamRole)) ||
+      (await userIsLeaderInBoard(prisma, session.user.id, session.user.role, governingBoardId))
     // Only the task's assignee(s) count here — not team members/collaborators.
     const isAssigneeView =
       task.assigneeId === session.user.id ||
       task.assignees?.some(a => a.userId === session.user.id) ||
       false
+    // A custom board role with "Approve work" may approve — but never their
+    // own work. This is what replaced the per-board reviewer pool.
+    const viewerBoardPerms = governingBoardId
+      ? (await loadBoardRoleContext(governingBoardId, session.user.id, session.user.role))?.permissions ?? NO_PERMISSIONS
+      : NO_PERMISSIONS
+    const viewerCanComplete = canFinalizeTask({
+      isAdmin: session.user.role === 'ADMIN',
+      isBoardLeader: isBoardLeaderView,
+      isOwner: isOwnerView,
+      isParentLeader: isParentLeaderView,
+    }) || (viewerBoardPerms.canApprove && !isAssigneeView)
     const viewerCanChangeStatus = viewerCanComplete || isAssigneeView
     // Rating is broader than completion: every LEADER in the board may rate.
     const viewerCanRate = await resolveCanRateWorkQuality({
@@ -304,32 +317,16 @@ export async function GET(
       taskTeamId: task.teamId,
     })
 
-    // Board Reviewers: if the governing board (this task's, or its parent's for a
-    // subtask) has a reviewer pool, route completion/rating to the assigned
-    // reviewer. `boardHasReviewerPool` lets the client gate each subtask by its
-    // own reviewerId. viewerCanChangeStatus stays legacy so a worker can still
-    // submit for review + assign a reviewer.
-    const reviewerBoardIdView = task.boardId ?? task.parent?.boardId ?? null
-    const boardHasReviewerPool = reviewerBoardIdView
-      ? (await prisma.boardReviewer.count({ where: { boardId: reviewerBoardIdView } })) > 0
-      : false
-    const viewGate = resolveReviewerGate({
-      hasReviewerPool: boardHasReviewerPool,
-      reviewerId: task.reviewerId,
-      viewerId: session.user.id,
-      isAdmin: session.user.role === 'ADMIN',
-      legacyCanFinalize: viewerCanComplete,
-      legacyCanRate: viewerCanRate,
-    })
-
     return NextResponse.json({
       ...task,
-      viewerCanComplete: viewGate.canFinalize,
+      viewerCanComplete,
       viewerCanChangeStatus,
-      viewerCanRate: viewGate.canRate,
-      boardHasReviewerPool,
+      viewerCanRate,
+      // The per-board reviewer pool is retired (custom roles cover it); kept
+      // false so older clients hide their reviewer picker.
+      boardHasReviewerPool: false,
       // The board a subtask's roles come from (its own, else its parent's).
-      governingBoardId: reviewerBoardIdView,
+      governingBoardId,
     })
   } catch (error) {
     console.error('Task GET error:', error)
@@ -386,8 +383,11 @@ export async function PATCH(
     // so they can only widen who may act — a board with no roles resolves to
     // all-false and every existing decision is untouched. That is the property
     // that makes adding an access-control layer to a live system safe.
-    const boardPerms = existingTask.boardId
-      ? (await loadBoardRoleContext(existingTask.boardId, session.user.id, session.user.role))?.permissions ?? NO_PERMISSIONS
+    // Resolved against the board that governs the task — its parent's for a
+    // subtask / cascade step, which carries no boardId of its own.
+    const governingBoardId = existingTask.boardId ?? existingTask.parent?.boardId ?? null
+    const boardPerms = governingBoardId
+      ? (await loadBoardRoleContext(governingBoardId, session.user.id, session.user.role))?.permissions ?? NO_PERMISSIONS
       : NO_PERMISSIONS
 
     const body = await req.json()
@@ -404,7 +404,10 @@ export async function PATCH(
       existingTask.parent.assigneeId === session.user.id ||
       existingTask.parent.creatorId === session.user.id
     )
-    const isBoardLeader = isLeader && isTeamLeader(teamMember?.role)
+    // Every LEADER working in the board leads its tasks (see the GET handler).
+    const isBoardLeader =
+      (isLeader && isTeamLeader(teamMember?.role)) ||
+      (await userIsLeaderInBoard(prisma, session.user.id, session.user.role, governingBoardId))
     // Owner = board owner, or (for a board-less task) the creator — so tasks
     // that were never on a board stay completable by their creator.
     const isOwner = existingTask.board
@@ -415,19 +418,21 @@ export async function PATCH(
       existingTask.assigneeId === session.user.id ||
       existingTask.assignees?.some(a => a.userId === session.user.id) ||
       false
-    let canComplete = canFinalizeTask({
+    // A custom board role with "Approve work" may approve, but never their own
+    // work — this replaced the per-board reviewer pool.
+    const canComplete = canFinalizeTask({
       isAdmin,
       isBoardLeader,
       isOwner,
       isParentLeader,
-    })
+    }) || (boardPerms.canApprove && !isAssignee)
     const isAssigner = existingTask.assignedById === session.user.id
     const isCreator = existingTask.creatorId === session.user.id
 
     // Who may rate work quality: every LEADER in the task's board (not just the
     // board/task creator), plus the existing finishers. Broader than canComplete
     // — completion permission is unchanged. Board access is verified server-side.
-    let canRate = await resolveCanRateWorkQuality({
+    const canRate = await resolveCanRateWorkQuality({
       canFinalize: canComplete,
       isLeader,
       userId: session.user.id,
@@ -437,55 +442,10 @@ export async function PATCH(
       taskTeamId: existingTask.teamId,
     })
 
-    // ── Board Reviewers enforcement ──
-    // The board that governs review (a subtask inherits its parent's board). If
-    // that board has a reviewer pool, only the task's assigned reviewer (or admin)
-    // may finalize/rate — so nobody approves their own work.
-    const reviewerBoardId = existingTask.boardId ?? existingTask.parent?.boardId ?? null
-    const hasReviewerPool = reviewerBoardId
-      ? (await prisma.boardReviewer.count({ where: { boardId: reviewerBoardId } })) > 0
-      : false
-    const assigneeIds = new Set<string>([
-      ...(existingTask.assigneeId ? [existingTask.assigneeId] : []),
-      ...(existingTask.assignees?.map(a => a.userId) ?? []),
-    ])
-
-    // Validate a reviewer assignment carried in this request. The submitter
-    // (assignee) or a board leader/admin may set it; only to a pool member, and
-    // never to the task's own assignee.
-    if (updateData.reviewerId !== undefined) {
-      const canAssignReviewer = isAssignee || isBoardLeader || isOwner || isAdmin
-      if (!canAssignReviewer) {
-        delete (updateData as any).reviewerId
-      } else if (updateData.reviewerId) {
-        if (!reviewerBoardId) {
-          return NextResponse.json({ error: 'This task is not on a board with reviewers.' }, { status: 400 })
-        }
-        if (assigneeIds.has(updateData.reviewerId)) {
-          return NextResponse.json({ error: "A task's assignee can't be its own reviewer." }, { status: 400 })
-        }
-        const inPool = await prisma.boardReviewer.findUnique({
-          where: { boardId_userId: { boardId: reviewerBoardId, userId: updateData.reviewerId } },
-          select: { id: true },
-        })
-        if (!inPool) {
-          return NextResponse.json({ error: "Reviewer must be in the board's reviewer pool." }, { status: 400 })
-        }
-      }
-    }
-
-    const effectiveReviewerId =
-      updateData.reviewerId !== undefined ? (updateData.reviewerId ?? null) : existingTask.reviewerId
-    const reviewerGate = resolveReviewerGate({
-      hasReviewerPool,
-      reviewerId: effectiveReviewerId,
-      viewerId: session.user.id,
-      isAdmin,
-      legacyCanFinalize: canComplete,
-      legacyCanRate: canRate,
-    })
-    canComplete = reviewerGate.canFinalize
-    canRate = reviewerGate.canRate
+    // The per-board reviewer pool is retired: custom roles ("Approve work")
+    // cover it, and every leader in the board may approve. A reviewerId sent by
+    // an older client is ignored.
+    delete (updateData as any).reviewerId
 
     // Leaders can extend due dates for tasks assigned to their team members (multi-leader support)
     let isLeaderSubordinateOverride = false

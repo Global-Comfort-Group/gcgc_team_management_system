@@ -45,3 +45,42 @@ export async function userCanAccessBoard(
   })
   return !!board
 }
+
+/**
+ * Is this user a LEADER working in the given board?
+ *
+ * "All leaders in a team board can edit, update, rate and approve its tasks"
+ * (field reports 2026-09). A leader counts when their account role is LEADER and
+ * they can reach the board by the same rule as `accessibleBoardWhere` — owner,
+ * explicit member, or member of the board's team. Their role *within* the team
+ * doesn't matter: a co-leader added to a team as a plain member still leads.
+ *
+ * Callers pass the board that governs the task — its own, or its parent's for a
+ * subtask / cascade step (those carry no boardId of their own).
+ */
+export async function userIsLeaderInBoard(
+  db: Pick<PrismaClient, 'kanbanBoard'>,
+  userId: string,
+  userRole: string | null | undefined,
+  boardId: string | null | undefined,
+): Promise<boolean> {
+  if (userRole !== 'LEADER') return false
+  return userCanAccessBoard(db, userId, boardId)
+}
+
+/**
+ * The ids of every board a LEADER leads in, for batch checks over many tasks
+ * (the task list, bulk actions). Empty for anyone who isn't a LEADER.
+ */
+export async function leaderBoardIds(
+  db: Pick<PrismaClient, 'kanbanBoard'>,
+  userId: string,
+  userRole: string | null | undefined,
+): Promise<Set<string>> {
+  if (userRole !== 'LEADER') return new Set()
+  const boards = await db.kanbanBoard.findMany({
+    where: accessibleBoardWhere(userId),
+    select: { id: true },
+  })
+  return new Set(boards.map(b => b.id))
+}

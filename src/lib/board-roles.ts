@@ -61,8 +61,6 @@ export interface ResolveInput {
   teamMemberRole?: TeamMemberRole | null
   /** Board roles this user holds. */
   roles?: BoardRoleLite[]
-  /** Users in the board's reviewer pool. */
-  reviewerIds?: string[]
 }
 
 /**
@@ -70,12 +68,11 @@ export interface ResolveInput {
  *
  * **Board-level capability, not a per-task override.** In particular
  * `canApprove` means "may act as an approver here" — it does NOT lift the
- * per-task rule that someone cannot approve their own work, which is the entire
- * reason the reviewer pool exists. The existing per-task checks still run after
+ * per-task rule that someone cannot approve their own work. The existing per-task checks still run after
  * this and still decide "may they do it to *this* task".
  */
 export function resolveBoardPermissions(input: ResolveInput): BoardPermissions {
-  const { userId, userRole, board, teamMemberRole, roles = [], reviewerIds = [] } = input
+  const { userId, userRole, board, teamMemberRole, roles = [] } = input
 
   // 1. Admins bypass everything.
   if (userRole === 'ADMIN') return { ...ALL_PERMISSIONS }
@@ -94,9 +91,6 @@ export function resolveBoardPermissions(input: ResolveInput): BoardPermissions {
       if (role[key]) out[key] = true
     }
   }
-
-  // 4. The reviewer pool independently grants approval.
-  if (reviewerIds.includes(userId)) out.canApprove = true
 
   return out
 }

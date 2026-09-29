@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { seedDefaultBoardStatuses } from '@/lib/board-statuses'
+import { seedDefaultBoardStatuses, ensureDefaultBoardStatuses, needsDefaultStatusRepair } from '@/lib/board-statuses'
 import { roundBoardProgress, resolveBoardActual, BOARD_PROGRESS_EXCLUDED_STATUSES } from '@/lib/board-progress'
 import { notifyAddedToBoard } from '@/lib/notifications'
 import { z } from 'zod'
@@ -54,6 +54,15 @@ export async function GET() {
     },
     orderBy: { createdAt: 'asc' },
   })
+
+  // Boards that predate custom statuses have no status rows (or lost their
+  // defaults to a first custom status). Give them the four defaults so they
+  // show up in Customize, editable, before anyone adds a status.
+  for (const b of boards) {
+    if (needsDefaultStatusRepair(b.statuses) && (await ensureDefaultBoardStatuses(prisma, b.id))) {
+      b.statuses = await prisma.boardStatus.findMany({ where: { boardId: b.id }, orderBy: { position: 'asc' } })
+    }
+  }
 
   // Overall completion % per board: average progress of top-level, non-parked
   // tasks (computed here so it's filter-independent).

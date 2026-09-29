@@ -46,7 +46,6 @@ export async function loadBoardRoleContext(
       teamId: true,
       members: { where: { userId }, select: { id: true } },
       team: { select: { members: { where: { userId }, select: { role: true } } } },
-      reviewers: { select: { userId: true } },
       roles: {
         where: { assignments: { some: { userId } } },
         select: {
@@ -75,7 +74,6 @@ export async function loadBoardRoleContext(
     board: { ownerId: board.ownerId },
     teamMemberRole,
     roles: board.roles,
-    reviewerIds: board.reviewers.map(r => r.userId),
   })
 
   return {

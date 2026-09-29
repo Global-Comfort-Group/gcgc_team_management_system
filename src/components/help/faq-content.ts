@@ -39,7 +39,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'navigate',
         question: 'How do I navigate the portal?',
         answer:
-          'Use the sidebar on the left:\n- Dashboard — your summary and what needs attention.\n- Tasks — boards, the task list, Backlog and Export.\n- Teams — the teams you belong to and their boards.\n- Calendar — task deadlines and synced Google events.\n- Profile — your details and notification settings.\n\nLeaders also see Team Overview, Member Management and Evaluations. On a phone, tap the menu button at the top-left to open the sidebar. Use the search bar at the top to jump straight to a task.',
+          'Use the sidebar on the left:\n- Dashboard — your summary and what needs attention.\n- Tasks — boards, the task list, Archive and Export.\n- Teams — the teams you belong to and their boards.\n- Calendar — task deadlines and synced Google events.\n- Evaluations — your evaluation scores.\n- Profile — your details and notification settings.\n\nLeaders also see Team Overview and Member Management. On a phone, tap the menu button at the top-left to open the sidebar. Use the search bar at the top to jump straight to a task.',
         keywords: ['menu', 'sidebar', 'navigation', 'move around', 'search'],
       },
       {
@@ -73,7 +73,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'task-details',
         question: 'What can I do inside a task?',
         answer:
-          'Click a card to open it. The details are on the left and the comments on the right (below the details on a phone).\n- Update progress, subtasks, dependencies, attachments and PR / PO records.\n- Comment, reply, react, attach a file, and type @ to mention someone.\n- Use "Duplicate" to copy the task, "Move" to send it to another board, or "Edit" to change it.',
+          'Click a card to open it. The details are on the left and the comments on the right (below the details on a phone).\n- Update progress, subtasks, dependencies, attachments and PR / PO records.\n- Comment, reply, react, attach a file, and type @ to mention someone on the task\'s board.\n- Use "Duplicate" to copy the task, "Move" to send it to another board, or "Edit" to change it.',
         keywords: ['comments', 'mention', 'attachment', 'duplicate', 'move', 'edit', 'details'],
       },
       {
@@ -85,9 +85,9 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       },
       {
         id: 'backlog',
-        question: 'What is the Backlog?',
+        question: 'What is the Archive?',
         answer:
-          'The Backlog is a hidden archive for each board. Archived tasks leave the board without being deleted; open them with the "Backlog" button on the Tasks page.\n\nCompleted tasks move to the Backlog automatically 5 days after they are completed. Restoring a task puts it back exactly as it was — a completed task comes back as Completed.',
+          'The Archive holds each board\'s hidden tasks. Archived tasks leave the board without being deleted; open them with the "Archive" button on the Tasks page.\n\nCompleted tasks move to the Archive automatically 5 days after they are completed. Restoring a task puts it back exactly as it was — a completed task comes back as Completed.',
         keywords: ['archive', 'hide task', 'later', 'restore', 'disappeared', 'missing', 'auto'],
       },
       {
@@ -161,7 +161,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'review-flow',
         question: 'How does a task get approved?',
         answer:
-          'When you finish, move the task to In Review. The person who reviews it sees "This task is awaiting your review." below the Timeline, with two buttons:\n- "Approve" completes the task.\n- "Send back" returns it to In Progress for more work.\n\nIf the board has reviewers, the assigned reviewer makes the decision, so nobody approves their own work.',
+          'When you finish, move the task to In Review. The person who reviews it sees "This task is awaiting your review." above the progress bar, with two buttons:\n- "Approve" completes the task.\n- "Send back" returns it to In Progress for more work.\n\nEvery leader on the board can approve, rate and edit its tasks. A board role with "Approve work" lets other people approve too, but never their own work.',
         keywords: ['approve', 'send back', 'in review', 'reviewer', 'submit'],
       },
       {
@@ -175,7 +175,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'grades',
         question: 'Where can I see a member\'s grades?',
         answer:
-          'Leaders: open Evaluations in the sidebar to see everyone\'s grades, including task ratings, and to add your own evaluation.\n\nTo go straight to one person, open Team Overview, open the member\'s "…" menu and choose "Evaluate". Team Overview also shows each member\'s latest score.',
+          'Open Evaluations in the sidebar. Members see their own evaluations; leaders see their team members\' grades, including task ratings, and can add an evaluation for anyone on their team. Scores run from 1 to 5.\n\nTo go straight to one person, open Team Overview, open the member\'s "…" menu and choose "Evaluate". Team Overview also shows each member\'s latest score.',
         keywords: ['evaluation', 'grades', 'performance', 'score', 'team overview'],
       },
     ],
@@ -202,8 +202,8 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'customize-board',
         question: 'How do I customize a board?',
         answer:
-          'Leaders: open the board and click "Customize". The tabs are:\n- statuses — the board\'s columns.\n- fields — extra fields shown on tasks.\n- forms — request forms for the board.\n- reviewers — who approves completed work.\n- roles — board roles and their holders.\n- templates — named templates people can pick in New Task.\n\n"Project info" on the same bar tracks the board\'s weighted measurements and quarterly targets.',
-        keywords: ['customize', 'settings', 'columns', 'fields', 'reviewers', 'project info'],
+          'Leaders: open the board and click "Customize". The tabs are:\n- statuses — the board\'s columns. Every board starts with To Do, In Progress, In Review and Completed; rename, recolor, reorder or delete any of them, as long as each kind keeps at least one.\n- fields — extra fields shown on tasks.\n- forms — request forms for the board.\n- roles — board roles and their holders.\n- templates — named templates people can pick in New Task.\n\n"Project info" on the same bar tracks the board\'s weighted measurements and quarterly targets.',
+        keywords: ['customize', 'settings', 'columns', 'fields', 'statuses', 'roles', 'project info'],
       },
       {
         id: 'board-categories',

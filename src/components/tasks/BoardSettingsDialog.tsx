@@ -91,7 +91,7 @@ async function call(url: string, method: string, body?: any) {
 
 export default function BoardSettingsDialog({ boardId, boardName, statuses, fields, members, open, onOpenChange, onChanged }: Props) {
   const { toast } = useToast()
-  const [tab, setTab] = useState<'statuses' | 'fields' | 'forms' | 'reviewers' | 'roles' | 'template'>('statuses')
+  const [tab, setTab] = useState<'statuses' | 'fields' | 'forms' | 'roles' | 'template'>('statuses')
   const [busy, setBusy] = useState(false)
 
   // Intake forms (fetched when the Forms tab opens)
@@ -102,13 +102,6 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
   const [nfTarget, setNfTarget] = useState<string>('')
   const [nfAssignee, setNfAssignee] = useState<string>('')
   const orderedStatusesForForm = [...statuses].filter((s) => s.category !== 'CANCELLED').sort((a, b) => a.position - b.position)
-
-  // Board reviewers pool (fetched when the Reviewers tab opens)
-  type ReviewerUser = { id: string; name?: string | null; email: string }
-  const [reviewers, setReviewers] = useState<ReviewerUser[]>([])
-  const [reviewerCandidates, setReviewerCandidates] = useState<ReviewerUser[]>([])
-  const [reviewersLoaded, setReviewersLoaded] = useState(false)
-  const [newReviewer, setNewReviewer] = useState('')
 
   // Board roles. A role grants permissions on this board only, and can only
   // ADD to what someone can already do — see src/lib/board-roles.ts.
@@ -121,8 +114,7 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
   }
   const [roles, setRoles] = useState<BoardRoleRow[]>([])
   const [rolesLoaded, setRolesLoaded] = useState(false)
-  // Everyone on the board (leaders and members) — NOT the reviewer candidates,
-  // which are leaders only.
+  // Everyone on the board (leaders and members).
   const [roleCandidates, setRoleCandidates] = useState<Array<{ id: string; name?: string | null; email: string; boardRole: 'LEADER' | 'MEMBER' }>>([])
   const [canManageRoles, setCanManageRoles] = useState(false)
   const [newRoleName, setNewRoleName] = useState('')
@@ -147,7 +139,7 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
     { key: 'canEditAnyTask',  label: 'Edit any task',   hint: 'Not just their own' },
     { key: 'canChangeStatus', label: 'Change status',   hint: 'Move cards between columns' },
     { key: 'canDeleteTask',   label: 'Delete tasks',    hint: 'Remove tasks from this board' },
-    { key: 'canApprove',      label: 'Approve work',    hint: 'Act as a reviewer here' },
+    { key: 'canApprove',      label: 'Approve work',    hint: 'Approve and rate others’ work' },
     { key: 'canManageBoard',  label: 'Manage board',    hint: 'Settings, columns and roles' },
   ]
 
@@ -262,18 +254,11 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
       if (res.ok) { setForms((await res.json()).forms || []); setFormsLoaded(true) }
     } catch { /* ignore */ }
   }
-  const loadReviewers = async () => {
-    try {
-      const res = await fetch(`/api/boards/${boardId}/reviewers`)
-      if (res.ok) { const d = await res.json(); setReviewers(d.reviewers || []); setReviewerCandidates(d.candidates || []); setReviewersLoaded(true) }
-    } catch { /* ignore */ }
-  }
   useEffect(() => {
     if (open && tab === 'forms' && !formsLoaded) loadForms()
-    if (open && tab === 'reviewers' && !reviewersLoaded) loadReviewers()
     if (open && tab === 'roles' && !rolesLoaded) loadRoles()
     if (open && tab === 'template' && !templateLoaded) { loadTemplate(); if (!rolesLoaded) loadRoles() }
-    if (!open) { setFormsLoaded(false); setReviewersLoaded(false); setRolesLoaded(false); setTemplateLoaded(false) }
+    if (!open) { setFormsLoaded(false); setRolesLoaded(false); setTemplateLoaded(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, tab])
 
@@ -302,18 +287,6 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
       setBusy(false)
     }
   }
-
-  const addReviewer = () => guard(async () => {
-    const res = await fetch(`/api/boards/${boardId}/reviewers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: newReviewer }) })
-    if (!res.ok) throw new Error((await res.json().catch(() => ({} as any))).error || 'Failed to add reviewer')
-    setNewReviewer('')
-    await loadReviewers()
-  }, 'Could not add reviewer')
-  const removeReviewer = (userId: string) => guard(async () => {
-    const res = await fetch(`/api/boards/${boardId}/reviewers?userId=${encodeURIComponent(userId)}`, { method: 'DELETE' })
-    if (!res.ok) throw new Error('Failed to remove reviewer')
-    await loadReviewers()
-  }, 'Could not remove reviewer')
 
   // ── Statuses ──
   const addStatus = () => {
@@ -409,7 +382,7 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
         </div>
 
         <div className="inline-flex items-center gap-1 rounded-md border p-0.5 self-start">
-          {(['statuses', 'fields', 'forms', 'reviewers', 'roles', 'template'] as const).map((t) => (
+          {(['statuses', 'fields', 'forms', 'roles', 'template'] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-3 h-7 rounded text-xs font-semibold capitalize ${tab === t ? 'bg-blue-600 text-white' : 'text-slate-600 hover:text-slate-900'}`}>
               {t === 'template' ? 'templates' : t}
@@ -429,8 +402,18 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
                   <input type="color" value={s.color} onChange={(e) => patchStatus(s, { color: e.target.value }, 'Could not update color')} className="h-7 w-7 rounded cursor-pointer border bg-transparent" title="Color" />
                   <Input defaultValue={s.name} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== s.name) patchStatus(s, { name: v }, 'Could not rename') }} className="h-8 flex-1" />
                   <span className="text-[10px] uppercase tracking-wide text-muted-foreground w-20 text-right shrink-0">{CATEGORY_LABELS[s.category] ?? s.category}</span>
-                  {s.isDefault ? <span className="text-[10px] text-muted-foreground w-14 text-center shrink-0">default</span>
-                    : <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700 shrink-0" disabled={busy} onClick={() => delStatus(s)}><Trash2 className="h-4 w-4" /></Button>}
+                  {(() => {
+                    // Any status can go except the last one of its category —
+                    // tasks need a column of that kind to land in.
+                    const onlyOne = orderedStatuses.filter((o) => o.category === s.category).length <= 1
+                    return (
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700 shrink-0 disabled:text-muted-foreground"
+                        disabled={busy || onlyOne} onClick={() => delStatus(s)}
+                        title={onlyOne ? `The only ${CATEGORY_LABELS[s.category] ?? s.category} status — rename it instead` : 'Delete status'}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )
+                  })()}
                 </div>
               ))}
             </div>
@@ -537,42 +520,6 @@ export default function BoardSettingsDialog({ boardId, boardName, statuses, fiel
                 <Button onClick={addForm} disabled={!nfTitle.trim() || busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}</Button>
               </div>
               <p className="text-[11px] text-muted-foreground">Anyone with the link can submit (no login). The form asks for the submitter’s name + email and your board’s custom fields, then creates a task here.</p>
-            </div>
-          </>
-        ) : tab === 'reviewers' ? (
-          <>
-            <div className="space-y-2 max-h-[44vh] overflow-y-auto pr-1">
-              {!reviewersLoaded && <p className="text-xs text-muted-foreground py-2">Loading…</p>}
-              {reviewersLoaded && reviewers.length === 0 && (
-                <p className="text-xs text-muted-foreground py-2">No reviewers yet. Add leaders below — once a board has reviewers, a task in review must be approved by its assigned reviewer, not the person who did the work.</p>
-              )}
-              {reviewers.map((u) => (
-                <div key={u.id} className="flex items-center gap-2 rounded-lg border p-2">
-                  <span className="grid place-items-center h-7 w-7 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold shrink-0">
-                    {(u.name || u.email)[0]?.toUpperCase()}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{u.name || u.email}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">{u.email}</p>
-                  </div>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700 shrink-0" disabled={busy} onClick={() => removeReviewer(u.id)}><Trash2 className="h-4 w-4" /></Button>
-                </div>
-              ))}
-            </div>
-            <div className="border-t pt-3 space-y-2">
-              <Label className="text-xs">Add a reviewer (leaders only)</Label>
-              <div className="flex items-center gap-2">
-                <Select value={newReviewer || 'none'} onValueChange={(v) => setNewReviewer(v === 'none' ? '' : v)}>
-                  <SelectTrigger className="flex-1"><SelectValue placeholder="Choose a leader…" /></SelectTrigger>
-                  <SelectContent>
-                    {reviewerCandidates.length === 0
-                      ? <SelectItem value="none" disabled>No leaders available</SelectItem>
-                      : reviewerCandidates.map((c) => <SelectItem key={c.id} value={c.id}>{c.name || c.email}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Button onClick={addReviewer} disabled={!newReviewer || busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}</Button>
-              </div>
-              <p className="text-[11px] text-muted-foreground">Reviewers approve and rate work on this board. When a task is moved to In Review, one of them is assigned to review it — the worker can’t rate their own task.</p>
             </div>
           </>
         ) : tab === 'roles' ? (

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { canManageBoard } from '@/lib/board-statuses'
+import { canManageBoard, pickReplacementDefault, CATEGORY_LABEL } from '@/lib/board-statuses'
 import { z } from 'zod'
 
 const updateSchema = z.object({
@@ -67,9 +67,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 }
 
-// DELETE — remove a custom status. Defaults can't be deleted (a category needs
-// its default column for fallback bucketing). Tasks on a deleted status have
-// customStatusId set null (FK) and fall back to their category's default column.
+// DELETE — remove a status. Tasks on a deleted custom status have customStatusId
+// set null (FK) and fall back to their category's default column.
+//
+// A default can be deleted too, as long as another status of its category is
+// left: that one becomes the default and takes over the deleted status's tasks.
+// The last status of a category can't go — tasks need a column to land in.
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string; statusId: string } }) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -81,10 +84,25 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     where: { id: params.statusId, boardId: params.id },
   })
   if (!existing) return NextResponse.json({ error: 'Status not found' }, { status: 404 })
-  if (existing.isDefault) {
-    return NextResponse.json({ error: "Default statuses can't be deleted." }, { status: 400 })
+
+  const siblings = await prisma.boardStatus.findMany({ where: { boardId: params.id } })
+  const replacement = pickReplacementDefault(siblings, existing)
+  if (!replacement) {
+    const label = CATEGORY_LABEL[existing.category] ?? existing.category
+    return NextResponse.json({
+      error: `"${existing.name}" is the only ${label} status. Rename it instead, or add another ${label} status first.`,
+    }, { status: 400 })
   }
 
-  await prisma.boardStatus.delete({ where: { id: params.statusId } })
+  await prisma.$transaction(async (tx) => {
+    if (existing.isDefault) {
+      await tx.boardStatus.update({ where: { id: replacement.id }, data: { isDefault: true } })
+      await tx.task.updateMany({
+        where: { customStatusId: existing.id },
+        data: { customStatusId: replacement.id },
+      })
+    }
+    await tx.boardStatus.delete({ where: { id: params.statusId } })
+  })
   return NextResponse.json({ ok: true })
 }

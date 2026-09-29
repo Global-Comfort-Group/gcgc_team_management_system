@@ -6,6 +6,7 @@ import { authOptions } from '@/lib/auth'
 import { parseMentions } from '@/lib/mentions'
 import { notifyMention } from '@/lib/notifications'
 import { canViewTask } from '@/lib/task-access'
+import { mentionableUserIds } from '@/lib/mention-scope'
 
 const createCommentSchema = z.object({
   content: z.string().max(500, 'Comment must be 500 characters or fewer').default(''),
@@ -203,18 +204,13 @@ export async function POST(
     })
 
     // Fire @mention notifications (best-effort; never block the response).
-    // Candidates are restricted to people with access to the task — a mention of
-    // anyone else simply matches nothing, so we never leak a task to a non-member.
+    // Candidates are the task's board members plus its own people — the same
+    // set the mention picker offers. A mention of anyone else matches nothing,
+    // so we never leak a task to a non-member.
     if (content.includes('@')) {
       try {
-        const candidateIds = Array.from(new Set(
-          [
-            task.assigneeId,
-            task.creatorId,
-            ...(task.teamMembers?.map(tm => tm.userId) ?? []),
-            ...(task.collaborators?.map(c => c.userId) ?? []),
-          ].filter((id): id is string => !!id && id !== session.user.id)
-        ))
+        const candidateIds = Array.from(await mentionableUserIds(prisma, params.id))
+          .filter(id => id !== session.user.id)
 
         if (candidateIds.length > 0) {
           const candidates = await prisma.user.findMany({
