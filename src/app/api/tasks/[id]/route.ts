@@ -256,7 +256,9 @@ export async function GET(
           }
         })
 
-        if (!teamMember) {
+        // An explicit member of the task's board is in it too, even when not
+        // on the board's team — same rule as the no-team branch above.
+        if (!teamMember && !(await userCanAccessBoard(prisma, session.user.id, task.boardId))) {
           return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
         }
       }
