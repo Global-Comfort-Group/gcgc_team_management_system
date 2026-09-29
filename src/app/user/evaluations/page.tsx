@@ -23,6 +23,7 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { UserAvatar } from '@/components/shared/UserAvatar'
 import { cn } from '@/lib/utils'
+import { formatRating } from '@/lib/evaluation-score'
 
 type Period = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'QUARTERLY'
 type GradientScore = 0 | 25 | 50 | 75 | 100
@@ -56,11 +57,11 @@ const GRADIENT_OPTIONS: {
   badge: string
   accent: string
 }[] = [
-  { score: 0,   label: '0%',   sublabel: 'None',      dot: 'bg-slate-400',   badge: 'bg-slate-100 text-slate-700 border-slate-300',      accent: 'border-l-slate-400'   },
-  { score: 25,  label: '25%',  sublabel: 'Poor',      dot: 'bg-red-400',     badge: 'bg-red-100 text-red-700 border-red-300',            accent: 'border-l-red-400'     },
-  { score: 50,  label: '50%',  sublabel: 'Fair',      dot: 'bg-amber-400',   badge: 'bg-amber-100 text-amber-700 border-amber-300',      accent: 'border-l-amber-400'   },
-  { score: 75,  label: '75%',  sublabel: 'Good',      dot: 'bg-blue-400',    badge: 'bg-blue-100 text-blue-700 border-blue-300',         accent: 'border-l-blue-400'    },
-  { score: 100, label: '100%', sublabel: 'Excellent', dot: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700 border-emerald-300', accent: 'border-l-emerald-500' },
+  { score: 0,   label: '1', sublabel: 'None',      dot: 'bg-slate-400',   badge: 'bg-slate-100 text-slate-700 border-slate-300',      accent: 'border-l-slate-400'   },
+  { score: 25,  label: '2', sublabel: 'Poor',      dot: 'bg-red-400',     badge: 'bg-red-100 text-red-700 border-red-300',            accent: 'border-l-red-400'     },
+  { score: 50,  label: '3', sublabel: 'Fair',      dot: 'bg-amber-400',   badge: 'bg-amber-100 text-amber-700 border-amber-300',      accent: 'border-l-amber-400'   },
+  { score: 75,  label: '4', sublabel: 'Good',      dot: 'bg-blue-400',    badge: 'bg-blue-100 text-blue-700 border-blue-300',         accent: 'border-l-blue-400'    },
+  { score: 100, label: '5', sublabel: 'Excellent', dot: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700 border-emerald-300', accent: 'border-l-emerald-500' },
 ]
 
 function getScoreOption(score: number) {
@@ -279,9 +280,13 @@ export default function EvaluationsPage() {
         <div className="relative backdrop-blur-sm bg-white/40 border border-slate-200/60 rounded-xl shadow-sm p-8">
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
             <div className="space-y-2">
-              <h1 className="text-3xl font-bold text-slate-900 tracking-tight">HR Evaluations</h1>
+              <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
+                {isLeaderOrAdmin ? 'HR Evaluations' : 'My Evaluations'}
+              </h1>
               <p className="text-slate-600 text-base font-medium">
-                Track and record performance evaluations across your team by period.
+                {isLeaderOrAdmin
+                  ? 'Track and record performance evaluations across your team by period.'
+                  : 'Every performance evaluation your leaders have recorded for you, by period.'}
               </p>
             </div>
             {isLeaderOrAdmin && (
@@ -295,7 +300,7 @@ export default function EvaluationsPage() {
       </div>
 
       {/* ── Stat Cards ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className={cn("grid grid-cols-1 sm:grid-cols-2 gap-6", isLeaderOrAdmin ? "lg:grid-cols-4" : "lg:grid-cols-3")}>
 
         <Card className="group relative overflow-hidden border border-slate-200 bg-white hover:shadow-lg transition-all duration-300 rounded-xl hover:-translate-y-1">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-blue-600" />
@@ -327,8 +332,8 @@ export default function EvaluationsPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-baseline gap-2">
-              <div className="text-4xl font-bold text-slate-900">{avgScore}</div>
-              <span className="text-sm text-slate-500 font-medium">%</span>
+              <div className="text-4xl font-bold text-slate-900">{formatRating(avgScore, 1)}</div>
+              <span className="text-sm text-slate-500 font-medium">/ 5</span>
             </div>
             <div className="space-y-1.5">
               <Progress value={avgScore} className="h-1.5 bg-slate-100" />
@@ -351,12 +356,13 @@ export default function EvaluationsPage() {
               <span className="text-sm text-slate-500 font-medium">Good+</span>
             </div>
             <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-              <span className="text-xs text-slate-500">75% or above</span>
+              <span className="text-xs text-slate-500">Rated 4 or above</span>
               <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-emerald-600 group-hover:translate-x-1 transition-all" />
             </div>
           </CardContent>
         </Card>
 
+        {isLeaderOrAdmin && (
         <Card className="group relative overflow-hidden border border-slate-200 bg-white hover:shadow-lg transition-all duration-300 rounded-xl hover:-translate-y-1">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-500 to-amber-600" />
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pt-5">
@@ -376,6 +382,7 @@ export default function EvaluationsPage() {
             </div>
           </CardContent>
         </Card>
+        )}
 
       </div>
 
@@ -390,7 +397,7 @@ export default function EvaluationsPage() {
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
           <Input
-            placeholder="Search by member or evaluator name..."
+            placeholder={isLeaderOrAdmin ? 'Search by member or evaluator name...' : 'Search by evaluator name...'}
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             className="pl-9 h-9 border-slate-200 bg-slate-50 text-sm rounded-lg"
@@ -505,7 +512,7 @@ export default function EvaluationsPage() {
                       </Badge>
                       <Badge className={cn("text-sm border font-bold px-3 py-1", opt.badge)}>
                         <span className={cn("w-2 h-2 rounded-full mr-1.5 inline-block", opt.dot)} />
-                        {ev.gradientScore}% · {opt.sublabel}
+                        {formatRating(ev.gradientScore)}/5 · {opt.sublabel}
                       </Badge>
                       <div className="flex items-center gap-1 text-xs text-slate-400 group-hover:text-blue-600 transition-colors ml-1">
                         <Eye className="h-3.5 w-3.5" />
@@ -524,7 +531,7 @@ export default function EvaluationsPage() {
                           <span className="ml-2 text-slate-500">· Task: <span className="font-medium text-slate-700">{ev.task.title}</span></span>
                         )}
                       </span>
-                      <span className="font-semibold text-slate-600">{ev.gradientScore}%</span>
+                      <span className="font-semibold text-slate-600">{formatRating(ev.gradientScore)}/5</span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                       <div
@@ -544,7 +551,7 @@ export default function EvaluationsPage() {
 
                   {/* View hint */}
                   <p className="text-xs text-slate-400 group-hover:text-blue-500 mt-3 text-right transition-colors">
-                    Click to view all evaluations for this member →
+                    {isLeaderOrAdmin ? 'Click to view all evaluations for this member →' : 'Click to view your full evaluation history →'}
                   </p>
                 </div>
               </div>
@@ -638,7 +645,7 @@ export default function EvaluationsPage() {
                 <p className="text-xs text-blue-600 font-medium mt-0.5">Total Evaluations</p>
               </div>
               <div className={cn("rounded-xl p-4 text-center border", memberAvgScore >= 75 ? 'bg-emerald-50 border-emerald-100' : memberAvgScore >= 50 ? 'bg-amber-50 border-amber-100' : 'bg-red-50 border-red-100')}>
-                <p className={cn("text-2xl font-bold", memberAvgScore >= 75 ? 'text-emerald-700' : memberAvgScore >= 50 ? 'text-amber-700' : 'text-red-700')}>{memberAvgScore}%</p>
+                <p className={cn("text-2xl font-bold", memberAvgScore >= 75 ? 'text-emerald-700' : memberAvgScore >= 50 ? 'text-amber-700' : 'text-red-700')}>{formatRating(memberAvgScore, 1)}/5</p>
                 <p className={cn("text-xs font-medium mt-0.5", memberAvgScore >= 75 ? 'text-emerald-600' : memberAvgScore >= 50 ? 'text-amber-600' : 'text-red-600')}>Average Score</p>
               </div>
               <div className="bg-purple-50 rounded-xl p-4 text-center border border-purple-100">
@@ -702,7 +709,7 @@ export default function EvaluationsPage() {
                             </Badge>
                             <Badge className={cn("text-sm border font-bold px-2.5 py-0.5", opt.badge)}>
                               <span className={cn("w-1.5 h-1.5 rounded-full mr-1 inline-block", opt.dot)} />
-                              {ev.gradientScore}%
+                              {formatRating(ev.gradientScore)}/5
                             </Badge>
                           </div>
                         </div>
@@ -829,7 +836,7 @@ export default function EvaluationsPage() {
             {/* Score */}
             <div className="space-y-2.5">
               <Label className="text-sm font-semibold text-slate-700">
-                Performance Score <span className="text-red-500">*</span>
+                Performance Score (1–5) <span className="text-red-500">*</span>
               </Label>
               <div className="grid grid-cols-5 gap-2">
                 {GRADIENT_OPTIONS.map(opt => (
@@ -845,7 +852,7 @@ export default function EvaluationsPage() {
                     )}
                   >
                     <span className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm", opt.dot)}>
-                      {opt.score}
+                      {opt.label}
                     </span>
                     <span className="text-[10px] font-semibold text-slate-600">{opt.sublabel}</span>
                   </button>
@@ -854,7 +861,7 @@ export default function EvaluationsPage() {
               {formScore !== null && (
                 <div className={cn("flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium", getScoreOption(formScore).badge)}>
                   <span className={cn("w-2 h-2 rounded-full", getScoreOption(formScore).dot)} />
-                  {getScoreOption(formScore).sublabel} — {formScore}%
+                  {getScoreOption(formScore).sublabel} — {formatRating(formScore)}/5
                 </div>
               )}
             </div>

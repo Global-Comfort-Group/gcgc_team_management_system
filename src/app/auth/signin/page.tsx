@@ -272,17 +272,9 @@ function SignInForm() {
             </div>
 
             <div>
-              <div className="mb-1.5 flex items-center justify-between">
-                <Label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                  Password
-                </Label>
-                <a
-                  href="mailto:support@gcgc.com?subject=Password%20reset%20request"
-                  className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                >
-                  Forgot password?
-                </a>
-              </div>
+              <Label htmlFor="password" className="mb-1.5 block text-sm font-medium text-gray-700">
+                Password
+              </Label>
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                   <Lock className="h-5 w-5 text-gray-400" />
@@ -319,6 +311,17 @@ function SignInForm() {
                 </button>
               </div>
               {touched.password && <FieldError error={fieldErrors.password} />}
+            </div>
+
+            {/* Sits directly above the sign-in button, where a user looks after
+                a password fails, rather than beside the field label. */}
+            <div className="flex justify-end">
+              <a
+                href="mailto:support@gcgc.com?subject=Password%20reset%20request"
+                className="text-sm font-medium text-blue-600 hover:text-blue-700"
+              >
+                Forgot password?
+              </a>
             </div>
 
             <Button

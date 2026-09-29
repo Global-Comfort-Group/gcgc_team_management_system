@@ -19,6 +19,7 @@ import { allocateTicketNumber } from '@/lib/ticket-allocate'
 import { applyManualTicketNumber, TicketNumberError } from '@/lib/ticket-allocate'
 import { resolveRoleAddressing, NO_PERMISSIONS } from '@/lib/board-roles'
 import { loadBoardRoleContext } from '@/lib/board-roles-server'
+import { userCanAccessBoard } from '@/lib/board-access'
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).max(100).optional(),
@@ -161,7 +162,7 @@ export async function GET(
           orderBy: [{ cascadeOrder: 'asc' }, { createdAt: 'asc' }]
         },
         parent: {
-          select: { id: true, title: true, creatorId: true, assigneeId: true, boardId: true }
+          select: { id: true, title: true, creatorId: true, assigneeId: true, boardId: true, teamId: true }
         },
         _count: {
           select: { subtasks: true }
@@ -204,6 +205,8 @@ export async function GET(
             select: {
               creatorId: true,
               assigneeId: true,
+              teamId: true,
+              boardId: true,
               teamMembers: { select: { userId: true } },
               collaborators: { select: { userId: true } },
             }
@@ -214,7 +217,30 @@ export async function GET(
               parent.assigneeId === session.user.id ||
               parent.teamMembers.some(tm => tm.userId === session.user.id) ||
               parent.collaborators.some(c => c.userId === session.user.id)
+
+            // A subtask / cascade step carries no teamId or boardId of its own,
+            // so the two branches above were the whole gate and a board member
+            // who wasn't personally named on the parent got a 403 opening a step
+            // they could already see listed (field reports 2026-09). Whoever can
+            // open the parent can open its steps: if the parent is a team task,
+            // its team members qualify, and so does anyone in its board.
+            if (!hasAccess && parent.teamId) {
+              const parentTeamMember = await prisma.teamMember.findUnique({
+                where: { userId_teamId: { userId: session.user.id, teamId: parent.teamId } }
+              })
+              hasAccess = !!parentTeamMember
+            }
+            if (!hasAccess) {
+              hasAccess = await userCanAccessBoard(prisma, session.user.id, parent.boardId)
+            }
           }
+        }
+
+        // Old tasks predate team boards and carry teamId = null while still
+        // living on a board; board membership is what "on my team" means for
+        // them. Same rule as the teamId branch below, read off the board.
+        if (!hasAccess) {
+          hasAccess = await userCanAccessBoard(prisma, session.user.id, task.boardId)
         }
 
         if (!hasAccess) {

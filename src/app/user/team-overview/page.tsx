@@ -59,6 +59,7 @@ import {
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
+import { formatRating } from '@/lib/evaluation-score'
 import MemberProfileModal from '@/components/shared/MemberProfileModal'
 import CreateTaskButton from '@/components/tasks/CreateTaskButton'
 import TaskForm from '@/components/tasks/TaskForm'
@@ -2148,9 +2149,9 @@ export default function TeamOverviewPage() {
           <CardContent className="space-y-3">
             <div className="flex items-baseline gap-2">
               <div className="text-4xl font-bold text-slate-900">
-                {avgEvalScore !== null ? avgEvalScore : '—'}
+                {avgEvalScore !== null ? formatRating(avgEvalScore, 1) : '—'}
               </div>
-              {avgEvalScore !== null && <span className="text-sm text-slate-500 font-medium">/ 100</span>}
+              {avgEvalScore !== null && <span className="text-sm text-slate-500 font-medium">/ 5</span>}
             </div>
             <div className="flex items-center justify-between pt-2 border-t border-slate-100">
               <span className="text-xs text-slate-500">
@@ -2476,7 +2477,7 @@ export default function TeamOverviewPage() {
                       {evalScores.has(member.id) ? (
                         <Badge className="text-xs rounded-md bg-amber-50 text-amber-700 border-amber-200 font-medium">
                           <Star className="h-3 w-3 mr-1" />
-                          {evalScores.get(member.id)}/100
+                          {formatRating(evalScores.get(member.id)!)}/5
                         </Badge>
                       ) : (
                         <Badge className="text-xs rounded-md bg-slate-100 text-slate-500 border-slate-200 font-medium">
