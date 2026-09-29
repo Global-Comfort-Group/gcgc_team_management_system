@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { prisma } from '@/lib/prisma'
 import { authOptions } from '@/lib/auth'
+import { canViewTask } from '@/lib/task-access'
+import { mentionableUserIds } from '@/lib/mention-scope'
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,11 +19,22 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ users: [] })
     }
 
+    // ?taskId= scopes the search to the people who can be @mentioned on that
+    // task (its board's members) — see src/lib/mention-scope.ts.
+    const taskId = searchParams.get('taskId')
+    let scopeIds: string[] | undefined
+    if (taskId) {
+      const { allowed } = await canViewTask(taskId, session.user.id, session.user.role === 'ADMIN')
+      if (!allowed) return NextResponse.json({ users: [] })
+      scopeIds = Array.from(await mentionableUserIds(prisma, taskId))
+    }
+
     // Search users by name or email, limit results
     const users = await prisma.user.findMany({
       where: {
         AND: [
           { isActive: true },
+          ...(scopeIds ? [{ id: { in: scopeIds } }] : []),
           {
             OR: [
               { name: { contains: query, mode: 'insensitive' } },

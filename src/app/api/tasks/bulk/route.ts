@@ -8,6 +8,7 @@ import { prisma } from '@/lib/prisma'
 import { canEditTask, canDeleteTask, canChangeTaskStatus, isTeamLeader } from '@/lib/permissions'
 import { notifyTaskCompleted, notifyTaskUpdated, notifyTaskSubmittedForReview } from '@/lib/notifications'
 import { loadAccessibleBoard, moveTaskAndSubtasks } from '@/lib/task-move'
+import { leaderBoardIds } from '@/lib/board-access'
 
 const MAX_BATCH_SIZE = 100
 
@@ -95,6 +96,8 @@ export async function POST(req: NextRequest) {
         })
       : []
     const teamRoleByTeamId = new Map(memberships.map(m => [m.teamId, m.role]))
+    // Every LEADER working in a board leads its tasks (field reports 2026-09).
+    const ledBoardIds = await leaderBoardIds(prisma, userId, userRole)
 
     // For moveToBoard: validate target-board access once, and precompute the
     // target's default-column-per-category map (used for every moved task).
@@ -125,7 +128,9 @@ export async function POST(req: NextRequest) {
       }
 
       const teamMemberRole = task.teamId ? teamRoleByTeamId.get(task.teamId) : undefined
-      const isBoardLeader = userRole === 'LEADER' && isTeamLeader(teamMemberRole)
+      const isBoardLeader =
+        (userRole === 'LEADER' && isTeamLeader(teamMemberRole)) ||
+        (!!task.boardId && ledBoardIds.has(task.boardId))
       // Owner = board owner, or (for a board-less task) the creator.
       const isOwner = task.board ? task.board.ownerId === userId : task.creatorId === userId
       // Only the task's assignee(s) — not team members/collaborators — may move it.
@@ -141,7 +146,7 @@ export async function POST(req: NextRequest) {
           result.updated++
         } else if (action.type === 'changePriority') {
           const assigneeIds = [task.assigneeId, ...(task.assignees?.map(a => a.userId) || [])].filter((id): id is string => !!id)
-          if (!canEditTask(userRole, task.creatorId, assigneeIds, userId, teamMemberRole)) {
+          if (!isBoardLeader && !canEditTask(userRole, task.creatorId, assigneeIds, userId, teamMemberRole)) {
             result.skipped.push({ id, reason: 'no permission to edit' })
             continue
           }

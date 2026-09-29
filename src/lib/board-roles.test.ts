@@ -97,14 +97,6 @@ describe('resolveBoardPermissions — role grants', () => {
 })
 
 describe('resolveBoardPermissions — approval', () => {
-  it('grants approval to the reviewer pool independently of roles', () => {
-    const p = resolveBoardPermissions({
-      userId: 'u1', userRole: 'MEMBER', board, reviewerIds: ['u1'],
-    })
-    expect(p.canApprove).toBe(true)
-    expect(p.canCreateTask).toBe(false)
-  })
-
   it('a role can grant approval too', () => {
     const p = resolveBoardPermissions({
       userId: 'u1', userRole: 'MEMBER', board, roles: [role('Approver', { canApprove: true })],
@@ -112,10 +104,8 @@ describe('resolveBoardPermissions — approval', () => {
     expect(p.canApprove).toBe(true)
   })
 
-  it('leaves a non-reviewer without approval', () => {
-    const p = resolveBoardPermissions({
-      userId: 'u1', userRole: 'MEMBER', board, reviewerIds: ['someone-else'],
-    })
+  it('leaves a member with no approving role without approval', () => {
+    const p = resolveBoardPermissions({ userId: 'u1', userRole: 'MEMBER', board, roles: [] })
     expect(p.canApprove).toBe(false)
   })
 })

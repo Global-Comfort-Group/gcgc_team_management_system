@@ -136,9 +136,9 @@ export default async function middleware(req: NextRequest) {
   if (pathname.startsWith('/user')) {
     // Hidden features — redirect to dashboard until re-enabled
     const hiddenRoutes = ['/user/ossb', '/user/workload']
-    // Evaluations is back for leaders (2026-09): task ratings now land there
-    // and it is where a leader reviews a member's grades. Members stay out.
-    if (userRole !== 'LEADER' && userRole !== 'ADMIN') hiddenRoutes.push('/user/evaluations')
+    // Evaluations is open to everyone (field reports 2026-09): leaders review a
+    // member's grades, and a member reads their own. The page and the API both
+    // scope a MEMBER to evaluations where they are the evaluatee.
     if (hiddenRoutes.some(r => pathname === r || pathname.startsWith(r + '/'))) {
       return NextResponse.redirect(new URL('/user/dashboard', req.url))
     }

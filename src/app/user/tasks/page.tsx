@@ -97,6 +97,7 @@ import { MoveToBoardDialog } from '@/components/tasks/MoveToBoardDialog'
 import { BulkTaskActionsDialog } from '@/components/tasks/bulk-task-actions-dialog'
 import BoardSettingsDialog from '@/components/tasks/BoardSettingsDialog'
 import { getScheduleHealth } from '@/lib/schedule-health'
+import { taskMatchesSearch } from '@/lib/task-search'
 
 interface Task {
   id: string
@@ -266,7 +267,7 @@ interface KanbanBoard {
 const PAGE_SIZE = 50
 
 const COLUMN_CONFIG = {
-  BACKLOG: { title: 'Backlog', color: 'bg-slate-100', textColor: 'text-slate-600' },
+  BACKLOG: { title: 'Archive', color: 'bg-slate-100', textColor: 'text-slate-600' },
   TODO: { title: 'To Do', color: 'bg-gray-100', textColor: 'text-gray-700' },
   IN_PROGRESS: { title: 'In Progress', color: 'bg-blue-100', textColor: 'text-blue-700' },
   IN_REVIEW: { title: 'In Review', color: 'bg-yellow-100', textColor: 'text-yellow-700' },
@@ -923,19 +924,8 @@ export default function TasksPage() {
       // Filter by status
       if (task.status !== status) return false
 
-      // Filter by search term (local filtering)
-      if (query) {
-        const titleMatch = task.title.toLowerCase().includes(query)
-        const descMatch = task.description?.toLowerCase().includes(query)
-        const assigneeMatch =
-          task.assignee?.name?.toLowerCase().includes(query) ||
-          task.assignee?.email?.toLowerCase().includes(query) ||
-          task.assignees?.some(a =>
-            a.user?.name?.toLowerCase().includes(query) || a.user?.email?.toLowerCase().includes(query))
-        return titleMatch || descMatch || assigneeMatch
-      }
-
-      return true
+      // Filter by search term (local filtering) — ticket #, title, people.
+      return taskMatchesSearch(task, query)
     })
   }
 
@@ -1060,9 +1050,9 @@ export default function TasksPage() {
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to move task')
       await fetchTasks(false); fetchBoards()
-      toast({ title: 'Moved to Backlog', description: 'Archived. Restore it anytime from the Backlog panel.' })
+      toast({ title: 'Moved to Archive', description: 'Restore it anytime from the Archive panel.' })
     } catch (e: any) {
-      toast({ title: 'Error', description: e?.message || 'Could not move to Backlog', variant: 'destructive' })
+      toast({ title: 'Error', description: e?.message || 'Could not move to Archive', variant: 'destructive' })
     }
   }
 
@@ -1385,17 +1375,7 @@ export default function TasksPage() {
           (task.customStatusId == null && col.isDefault && task.status === col.category)
         : task.status === col.category
       if (!inCol) return false
-      if (query) {
-        const titleMatch = task.title.toLowerCase().includes(query)
-        const descMatch = task.description?.toLowerCase().includes(query)
-        const assigneeMatch =
-          task.assignee?.name?.toLowerCase().includes(query) ||
-          task.assignee?.email?.toLowerCase().includes(query) ||
-          task.assignees?.some(a =>
-            a.user?.name?.toLowerCase().includes(query) || a.user?.email?.toLowerCase().includes(query))
-        return titleMatch || descMatch || assigneeMatch
-      }
-      return true
+      return taskMatchesSearch(task, query)
     })
   }
 
@@ -1551,9 +1531,9 @@ export default function TasksPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setShowBacklog(true)} title="View archived (backlog) tasks">
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setShowBacklog(true)} title="View archived tasks">
             <Archive className="h-4 w-4 mr-2" />
-            Backlog{tasks.filter(t => t.status === 'BACKLOG').length > 0 ? ` (${tasks.filter(t => t.status === 'BACKLOG').length})` : ''}
+            Archive{tasks.filter(t => t.status === 'BACKLOG').length > 0 ? ` (${tasks.filter(t => t.status === 'BACKLOG').length})` : ''}
           </Button>
           <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleExport} disabled={exporting} title="Export to Excel">
             <Download className="h-4 w-4 mr-2" />
@@ -1666,7 +1646,7 @@ export default function TasksPage() {
         <div className="relative w-full sm:max-w-md sm:flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search tasks by title, description, or users..."
+            placeholder="Search by ticket #, title, description, or people..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10"
@@ -1898,14 +1878,14 @@ export default function TasksPage() {
                                         </DropdownMenuItem>
                                       )}
 
-                                      {/* Move to Backlog (archive) — hides it from the board until restored */}
+                                      {/* Move to Archive — hides it from the board until restored */}
                                       {canUserChangeTaskStatus(task) && task.status !== 'BACKLOG' && (
                                         <DropdownMenuItem onClick={(e) => {
                                           e.stopPropagation()
                                           moveTaskToBacklog(task)
                                         }}>
                                           <Archive className="h-4 w-4 mr-2" />
-                                          Move to Backlog
+                                          Move to Archive
                                         </DropdownMenuItem>
                                       )}
 
@@ -2191,16 +2171,16 @@ export default function TasksPage() {
         onCompleted={fetchTasks}
       />
 
-      {/* Backlog (archive) panel — tasks hidden from the board, restorable to To Do */}
+      {/* Archive panel (status BACKLOG) — tasks hidden from the board, restorable */}
       <Dialog open={showBacklog} onOpenChange={setShowBacklog}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Archive className="h-5 w-5 text-slate-500" /> Backlog</DialogTitle>
+            <DialogTitle className="flex items-center gap-2"><Archive className="h-5 w-5 text-slate-500" /> Archive</DialogTitle>
             <DialogDescription>Archived tasks, hidden from the board. Completed tasks move here after 5 days. Restore one to put it back where it was.</DialogDescription>
           </DialogHeader>
           {(() => {
             const backlog = tasks.filter(t => t.status === 'BACKLOG')
-            if (backlog.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">No tasks in the backlog.</p>
+            if (backlog.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">No archived tasks.</p>
             return (
               <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
                 {backlog.map(t => (

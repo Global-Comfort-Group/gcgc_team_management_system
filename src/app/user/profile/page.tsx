@@ -593,11 +593,12 @@ export default function UserProfilePage() {
                 Account Settings
               </CardTitle>
               <CardDescription className="text-sm text-slate-600 font-medium mt-1">
-                Account credentials and security information. Changing your email may require signing in again.
+                Account credentials and security information. To change your email address, ask an administrator.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              <InlineEditField field="email" label="Email Address" icon={Mail} type="email" />
+              {/* Email is the login identity — only an admin can change it. */}
+              <InlineEditField field="email" label="Email Address" icon={Mail} type="email" editable={false} />
               <InlineEditField field="username" label="Username" icon={User} />
 
               <Separator className="my-4" />

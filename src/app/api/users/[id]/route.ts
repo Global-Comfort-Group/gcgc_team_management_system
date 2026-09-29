@@ -138,12 +138,19 @@ export async function PATCH(
     const body = await req.json()
     const validatedData = updateProfileSchema.parse(body)
 
-    // Login identity (email / username) may only be changed by the account owner
-    // or an admin — never by a leader editing a managed member, who is limited to
-    // org/profile fields and must not be able to take over a member's login.
-    const changingIdentity = validatedData.email !== undefined || validatedData.username !== undefined
-    if (changingIdentity && !isSelf && !isAdmin) {
-      return NextResponse.json({ error: 'Only the account owner or an admin can change email or username' }, { status: 403 })
+    // Login identity may never be changed by a leader editing a managed member,
+    // who is limited to org/profile fields and must not be able to take over a
+    // member's login. The email address is admin-only — users can't change their
+    // own (field reports 2026-09); the username stays self-service.
+    if (validatedData.email !== undefined && !isAdmin) {
+      const current = await prisma.user.findUnique({ where: { id: params.id }, select: { email: true } })
+      if (validatedData.email.toLowerCase() !== current?.email?.toLowerCase()) {
+        return NextResponse.json({ error: 'Only an administrator can change an email address' }, { status: 403 })
+      }
+      delete (validatedData as { email?: string }).email
+    }
+    if (validatedData.username !== undefined && !isSelf && !isAdmin) {
+      return NextResponse.json({ error: 'Only the account owner or an admin can change the username' }, { status: 403 })
     }
 
     // Email must be from an allowed domain.

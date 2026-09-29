@@ -329,6 +329,10 @@ export default function TaskViewModal({
   // transparent text + visible caret, and their scroll positions stay in sync.
   const commentInputRef = useRef<HTMLTextAreaElement>(null)
   const commentBackdropRef = useRef<HTMLDivElement>(null)
+  // The thread is newest-first and now sits ABOVE the composer, so a comment
+  // posted from a scrolled thread would land off-screen. Scroll it back to the
+  // top on post so the author sees what they just wrote.
+  const commentsListRef = useRef<HTMLDivElement>(null)
   // Auto-grow the comment composer to fit its content (incl. programmatic
   // changes like inserting an @mention), so it never shows an inner scrollbar.
   useEffect(() => { autoGrowTextarea(commentInputRef.current) }, [newComment])
@@ -367,10 +371,6 @@ export default function TaskViewModal({
   const [savingSubtaskRating, setSavingSubtaskRating] = useState(false)
   const [confirmDeleteSubtask, setConfirmDeleteSubtask] = useState<NonNullable<Task['subtasks']>[number] | null>(null)
   const [deletingSubtask, setDeletingSubtask] = useState(false)
-  // Board Reviewers (loaded with task details when the governing board has a pool)
-  const [boardReviewerPool, setBoardReviewerPool] = useState<Array<{ id: string; name?: string | null; email: string }>>([])
-  const [reviewerBoard, setReviewerBoard] = useState<{ hasPool: boolean; boardId: string | null }>({ hasPool: false, boardId: null })
-  const [taskReviewerId, setTaskReviewerId] = useState<string | null>(null)
   const [availableUsers, setAvailableUsers] = useState<Array<{id: string, name: string, email: string, image?: string}>>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
   // Viewer permissions from GET /api/tasks/[id] (authoritative once details load)
@@ -471,10 +471,11 @@ export default function TaskViewModal({
 
   // Fetch users for mentions
   const fetchMentionUsers = async (query: string) => {
-    if (!query.trim()) return []
+    if (!query.trim() || !task?.id) return []
     
     try {
-      const response = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`)
+      // Only members of this task's board can be mentioned.
+      const response = await fetch(`/api/users/search?q=${encodeURIComponent(query)}&taskId=${encodeURIComponent(task.id)}`)
       if (response.ok) {
         const data = await response.json()
         return data.users || []
@@ -519,7 +520,6 @@ export default function TaskViewModal({
           canChangeStatus: fullTask.viewerCanChangeStatus,
           canRate: fullTask.viewerCanRate,
         })
-        setReviewerBoard({ hasPool: !!fullTask.boardHasReviewerPool, boardId: fullTask.boardId ?? null })
         if (fullTask.governingBoardId) {
           fetch(`/api/boards/${fullTask.governingBoardId}/roles`)
             .then((r) => (r.ok ? r.json() : null))
@@ -527,13 +527,6 @@ export default function TaskViewModal({
             .catch(() => setSubtaskRoles([]))
         } else {
           setSubtaskRoles([])
-        }
-        setTaskReviewerId(fullTask.reviewerId ?? null)
-        if (fullTask.boardHasReviewerPool && fullTask.boardId) {
-          fetch(`/api/boards/${fullTask.boardId}/reviewers`)
-            .then((r) => (r.ok ? r.json() : null))
-            .then((d) => { if (d) setBoardReviewerPool(d.reviewers || []) })
-            .catch(() => {})
         }
       }
     } catch (error) {
@@ -940,12 +933,7 @@ export default function TaskViewModal({
     let newProgress: number
     let successMessage: string
 
-    // With a board reviewer pool, only the subtask's assigned reviewer (or admin)
-    // may rate/complete it; the worker just submits for review. Without a pool,
-    // legacy behavior applies (canCompleteTask).
-    const canRateThisSubtask = reviewerBoard.hasPool
-      ? (session?.user?.role === 'ADMIN' || subtask.reviewerId === session?.user?.id)
-      : canCompleteTask
+    const canRateThisSubtask = canCompleteTask
     if (canRateThisSubtask) {
       const isCompleted = subtask.status === 'COMPLETED'
       if (!isCompleted) {
@@ -1073,54 +1061,6 @@ export default function TaskViewModal({
     }
   }
 
-  // Assign / clear a task's (or subtask's) reviewer. Server validates pool
-  // membership + that it isn't the assignee.
-  const assignReviewer = async (targetTaskId: string, reviewerId: string | null) => {
-    try {
-      const res = await fetch(`/api/tasks/${targetTaskId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reviewerId }),
-      })
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({} as any))
-        throw new Error(e.error || 'Failed to assign reviewer')
-      }
-      toast({ title: reviewerId ? 'Reviewer assigned' : 'Reviewer cleared' })
-      onTaskUpdate?.()
-      fetchTaskDetails()
-    } catch (e: any) {
-      toast({ title: 'Could not assign reviewer', description: e.message, variant: 'destructive' })
-    }
-  }
-
-  // Reviewer picker (dropdown of the board pool) or a read-only label.
-  const renderReviewerSelect = (
-    currentReviewerId: string | null,
-    onChange: (id: string | null) => void,
-    canEdit: boolean
-  ) => {
-    const current = boardReviewerPool.find((u) => u.id === currentReviewerId)
-    if (!canEdit) {
-      return (
-        <span className="text-xs text-gray-600">
-          {current ? current.name || current.email : currentReviewerId ? 'Assigned' : 'Unassigned'}
-        </span>
-      )
-    }
-    return (
-      <Select value={currentReviewerId || 'none'} onValueChange={(v) => onChange(v === 'none' ? null : v)}>
-        <SelectTrigger className="h-7 text-xs w-48"><SelectValue placeholder="Assign reviewer…" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="none">Unassigned</SelectItem>
-          {boardReviewerPool.map((u) => (
-            <SelectItem key={u.id} value={u.id}>{u.name || u.email}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    )
-  }
-
   // Handle mentions in comment text
   const handleCommentChange = async (text: string) => {
     setNewComment(text)
@@ -1242,6 +1182,7 @@ export default function TaskViewModal({
           setComments(prev => [comment, ...prev])
           setNewComment('')
           setPendingFile(null)
+          commentsListRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
         }
 
         if (fileInputRef.current) {
@@ -2049,12 +1990,18 @@ export default function TaskViewModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl lg:max-w-6xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl lg:max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
         {/* The whole task (header + details) on the left, comments on the right
             on wide screens, so the discussion sits beside the task itself
-            (field reports 2026-09). Stacks on narrow screens. */}
-        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-6 lg:items-start">
-        <div className="space-y-4 min-w-0">
+            (field reports 2026-09). Stacks on narrow screens.
+
+            Each column owns its own scrollbar on wide screens (`min-h-0` is what
+            lets a flex child shrink below its content and actually scroll); the
+            stacked layout falls back to one scrollbar on this wrapper. Flex, not
+            grid, because a grid row needs an explicit minmax(0,…) to contain a
+            scrolling child. */}
+        <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden lg:flex lg:flex-row lg:gap-6">
+        <div className="space-y-4 min-w-0 lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
         {/* Simple Header */}
         <DialogHeader className="space-y-3 pr-8 overflow-hidden">
           {/* Back button — shown when navigated into a subtask */}
@@ -2227,6 +2174,48 @@ export default function TaskViewModal({
               {task.taskType.replace('_', ' ')}
             </Badge>
           </div>
+
+          {/* Review banner — appears for the assigner / creator / admin when a
+              task is sitting in IN_REVIEW awaiting their decision. Sits directly
+              above the progress bar, at the top of the task column, so the
+              decision is the first thing a reviewer sees on opening the task
+              (field reports 2026-09: the previous round moved it below the
+              Timeline, which still left it well down the page). */}
+          {task.status === 'IN_REVIEW' && canCompleteTask && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5">
+              <div className="flex items-center gap-2 text-sm text-amber-900">
+                <Eye className="h-4 w-4 shrink-0" />
+                <span>
+                  This task is awaiting your review.
+                  {task.memberSubmittedAt && (
+                    <span className="text-amber-700 ml-1">
+                      Submitted {formatDistanceToNow(new Date(task.memberSubmittedAt), { addSuffix: true })}.
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleReviewDecision('sendBack')}
+                  disabled={savingReview !== null}
+                >
+                  <RotateCcw className="h-4 w-4 mr-1.5" />
+                  {savingReview === 'sendBack' ? 'Sending…' : 'Send back'}
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={() => handleReviewDecision('approve')}
+                  disabled={savingReview !== null}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                  {savingReview === 'approve' ? 'Approving…' : 'Approve'}
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Progress — derived for parent tasks, editable for leaf tasks */}
           <div className="space-y-2">
@@ -2671,23 +2660,6 @@ export default function TaskViewModal({
             </div>
           </div>
 
-          {/* Board Reviewer assignment (only when the governing board has a pool) */}
-          {reviewerBoard.hasPool && (
-            <div className="border-t pt-4">
-              <div className="flex items-center gap-2 flex-wrap rounded-lg border bg-blue-50/40 px-3 py-2">
-                <span className="text-sm font-medium text-gray-700 shrink-0">Reviewer</span>
-                {renderReviewerSelect(
-                  taskReviewerId,
-                  (id) => assignReviewer(task.id, id),
-                  isTaskAssignee || canCompleteTask || session?.user?.role === 'LEADER' || session?.user?.role === 'ADMIN'
-                )}
-                {!taskReviewerId && (
-                  <span className="text-[11px] text-amber-600">Assign a reviewer to allow completion.</span>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* Subtasks Section - Available on all tasks including subtasks */}
           {(
             <div className="border-t pt-4 space-y-3">
@@ -2892,16 +2864,6 @@ export default function TaskViewModal({
                               </Badge>
                             )}
                           </div>
-                          {reviewerBoard.hasPool && (
-                            <div className="flex items-center gap-1.5 mt-1.5" onClick={(e) => e.stopPropagation()}>
-                              <span className="text-[11px] text-gray-500 shrink-0">Reviewer:</span>
-                              {renderReviewerSelect(
-                                subtask.reviewerId ?? null,
-                                (id) => assignReviewer(subtask.id, id),
-                                canManageSubtask || subtask.assignee?.id === session?.user?.id
-                              )}
-                            </div>
-                          )}
                         </div>
                         {isLocked ? (
                           <Lock className="h-4 w-4 text-slate-400 flex-shrink-0" />
@@ -3016,46 +2978,6 @@ export default function TaskViewModal({
                   <span className="font-medium">{format(new Date(task.leaderEvaluatedAt), 'MMM dd, yyyy HH:mm')}</span>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* Review banner — appears for the assigner / creator / admin when a
-              task is sitting in IN_REVIEW awaiting their decision. Sits below
-              the Timeline, right above the rating, so the reviewer decides
-              having seen the work and its dates (field reports 2026-09). */}
-          {task.status === 'IN_REVIEW' && canCompleteTask && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5">
-              <div className="flex items-center gap-2 text-sm text-amber-900">
-                <Eye className="h-4 w-4 shrink-0" />
-                <span>
-                  This task is awaiting your review.
-                  {task.memberSubmittedAt && (
-                    <span className="text-amber-700 ml-1">
-                      Submitted {formatDistanceToNow(new Date(task.memberSubmittedAt), { addSuffix: true })}.
-                    </span>
-                  )}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleReviewDecision('sendBack')}
-                  disabled={savingReview !== null}
-                >
-                  <RotateCcw className="h-4 w-4 mr-1.5" />
-                  {savingReview === 'sendBack' ? 'Sending…' : 'Send back'}
-                </Button>
-                <Button
-                  size="sm"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                  onClick={() => handleReviewDecision('approve')}
-                  disabled={savingReview !== null}
-                >
-                  <CheckCircle2 className="h-4 w-4 mr-1.5" />
-                  {savingReview === 'approve' ? 'Approving…' : 'Approve'}
-                </Button>
-              </div>
             </div>
           )}
 
@@ -3422,17 +3344,36 @@ export default function TaskViewModal({
           </div>
         </div>
 
-          {/* Enhanced Comments Section */}
-          <div className="border-t pt-6 mt-4 space-y-4 lg:mt-0 lg:border-t-0 lg:pt-0 lg:border-l lg:pl-6 lg:sticky lg:top-0">
-            <div className="flex items-center justify-between">
+          {/* Enhanced Comments Section — a column of its own: title, then the
+              scrolling thread, then the composer pinned to the bottom, where a
+              chat's input belongs (field reports 2026-09). */}
+          <div className="border-t pt-6 mt-4 flex flex-col gap-4 lg:mt-0 lg:border-t-0 lg:pt-0 lg:border-l lg:pl-6 lg:w-[380px] lg:shrink-0 lg:min-h-0">
+            <div className="flex items-center justify-between shrink-0">
               <h4 className="font-medium text-gray-900 flex items-center gap-2">
                 <MessageSquare className="h-4 w-4" />
                 Comments ({comments.length})
               </h4>
             </div>
 
+            {/* Comments List with Reactions and Replies. The mobile cap keeps
+                the composer on screen when the layout is stacked. */}
+            <div ref={commentsListRef} className="space-y-4 flex-1 min-h-0 max-h-[400px] lg:max-h-none overflow-y-auto">
+              {loadingComments ? (
+                <div className="flex justify-center py-4">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-400" />
+                </div>
+              ) : comments.length > 0 ? (
+                comments.map((comment) => renderComment(comment))
+              ) : (
+                <div className="flex items-center justify-center gap-2 py-3 text-sm text-gray-400">
+                  <MessageSquare className="h-4 w-4 opacity-60" />
+                  <span>No comments yet</span>
+                </div>
+              )}
+            </div>
+
             {/* Add Comment with Mentions and File Attachments */}
-            <div className="space-y-3 relative">
+            <div className="space-y-3 relative shrink-0 border-t pt-3">
               <div className="relative">
                 {/* Highlight backdrop — mirrors the textarea so @mentions glow
                     live while typing. Must match the textarea's box exactly. */}
@@ -3469,7 +3410,7 @@ export default function TaskViewModal({
 
                 {/* Mention Dropdown */}
                 {showMentions && mentionUsers.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-md shadow-lg z-10 max-h-40 overflow-y-auto">
+                  <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border border-gray-200 rounded-md shadow-lg z-10 max-h-40 overflow-y-auto">
                     {mentionUsers.map((user) => (
                       <button
                         key={user.id}
@@ -3581,22 +3522,6 @@ export default function TaskViewModal({
                   )}
                 </Button>
               </div>
-            </div>
-
-            {/* Comments List with Reactions and Replies */}
-            <div className="space-y-4 max-h-[400px] lg:max-h-[55vh] overflow-y-auto">
-              {loadingComments ? (
-                <div className="flex justify-center py-4">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-400" />
-                </div>
-              ) : comments.length > 0 ? (
-                comments.map((comment) => renderComment(comment))
-              ) : (
-                <div className="flex items-center justify-center gap-2 py-3 text-sm text-gray-400">
-                  <MessageSquare className="h-4 w-4 opacity-60" />
-                  <span>No comments yet</span>
-                </div>
-              )}
             </div>
           </div>
         </div>

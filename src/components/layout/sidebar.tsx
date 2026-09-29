@@ -22,7 +22,6 @@ import {
   FileText,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   BarChart2,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   Star,
 } from 'lucide-react'
 import { NotificationDropdown } from '@/components/notifications/NotificationDropdown'
@@ -92,6 +91,7 @@ const userNavItems = [
     icon: Calendar,
   },
   // { title: 'OSSB Requests', href: '/user/ossb', icon: FileText },
+  { title: 'Evaluations', href: '/user/evaluations', icon: Star },
   {
     title: 'TMS Chat',
     href: process.env.NEXT_PUBLIC_TMS_CHAT_URL || 'https://tms-chat-staging.hotelsogo-ai.com',

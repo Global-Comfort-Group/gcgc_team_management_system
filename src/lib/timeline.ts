@@ -75,7 +75,7 @@ export interface TimelineGroup<T> {
 const STATUS_ORDER = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'BACKLOG', 'CANCELLED']
 const STATUS_LABEL: Record<string, string> = {
   TODO: 'To Do', IN_PROGRESS: 'In Progress', IN_REVIEW: 'In Review',
-  COMPLETED: 'Completed', BACKLOG: 'Backlog', CANCELLED: 'Cancelled',
+  COMPLETED: 'Completed', BACKLOG: 'Archived', CANCELLED: 'Cancelled',
 }
 const STATUS_COLOR: Record<string, string> = {
   TODO: '#9CA3AF', IN_PROGRESS: '#3B82F6', IN_REVIEW: '#F59E0B',

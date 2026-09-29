@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { resolveLeaderRoster } from '@/lib/leader-roster'
 
 const createEvaluationSchema = z.object({
   evaluateeId: z.string().cuid('Invalid user ID'),
@@ -78,6 +79,15 @@ export async function POST(request: Request) {
 
     const body = await request.json()
     const data = createEvaluationSchema.parse(body)
+
+    // A leader may only evaluate their own team members (same roster as the
+    // New Evaluation picker and Member Management).
+    if (session.user.role === 'LEADER') {
+      const roster = await resolveLeaderRoster(session.user.id)
+      if (!roster.memberIds.includes(data.evaluateeId)) {
+        return NextResponse.json({ error: 'You can only evaluate members of your own team.' }, { status: 403 })
+      }
+    }
 
     const evaluation = await prisma.taskEvaluation.create({
       data: {

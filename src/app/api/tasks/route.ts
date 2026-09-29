@@ -3,6 +3,8 @@ import { getRequestSession } from '@/lib/api-auth'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { hasPermission, canFinalizeTask } from '@/lib/permissions'
+import { leaderBoardIds } from '@/lib/board-access'
+import { ticketSearchConditions } from '@/lib/task-search'
 import { PERMISSIONS } from '@/constants'
 import { autoSyncTask } from '@/lib/calendar-sync-helper'
 import { notifyTaskAssigned, notifySubtaskAssigned } from '@/lib/notifications'
@@ -317,9 +319,9 @@ export async function GET(req: NextRequest) {
     // Handle search - merge with existing OR conditions
     if (search) {
       const searchConditions = [
-        // Ticket number first: someone pasting "OPS-14" wants that one task,
-        // and an exact id match should not be buried under title matches.
-        { ticketNumber: { equals: search.trim().toUpperCase() } },
+        // Ticket number first: "OPS-14", "ops14", "#14" or "14" — same rule as
+        // the board's local filter (src/lib/task-search.ts).
+        ...ticketSearchConditions(search),
         { title: { contains: search, mode: 'insensitive' } },
         { description: { contains: search, mode: 'insensitive' } },
         // Search in user names (assignee, creator, team members, collaborators)
@@ -541,13 +543,18 @@ export async function GET(req: NextRequest) {
       select: { teamId: true },
     })
     const leaderTeamIds = new Set(leaderTeams.map(t => t.teamId))
+    // Every LEADER working in a board leads its tasks, whatever their team role
+    // and even on old tasks with teamId = null (field reports 2026-09).
+    const ledBoardIds = await leaderBoardIds(prisma, session.user.id, session.user.role)
     const viewerRole = session.user.role
     const tasksWithPerms = tasks.map((t: any) => {
       // Owner = board owner, or (for a board-less task) the creator.
       const isOwner = t.board ? t.board.ownerId === session.user.id : t.creatorId === session.user.id
       const viewerCanComplete = canFinalizeTask({
         isAdmin: viewerRole === 'ADMIN',
-        isBoardLeader: viewerRole === 'LEADER' && !!t.teamId && leaderTeamIds.has(t.teamId),
+        isBoardLeader:
+          (viewerRole === 'LEADER' && !!t.teamId && leaderTeamIds.has(t.teamId)) ||
+          (!!t.boardId && ledBoardIds.has(t.boardId)),
         isOwner,
         isParentLeader: false,
       })
