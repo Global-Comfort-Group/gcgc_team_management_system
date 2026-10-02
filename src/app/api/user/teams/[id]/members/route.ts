@@ -5,7 +5,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { authOptions } from '@/lib/auth'
 import { canManageTeam } from '@/lib/team-permissions'
-import { syncTeamMembersToLeaders } from '@/lib/team-leader-sync'
+import { inviteToTeam } from '@/lib/team-invitations'
 
 const addMemberSchema = z.object({
   userId: z.string().min(1),
@@ -38,9 +38,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json({ members })
 }
 
-// POST — add an existing active user to the team by reference (role optional, default MEMBER).
-// Does NOT modify the added user's profile or reportsToId. It DOES add the new
-// member under the team board's leaders (LeaderMembership) — see team-leader-sync.
+// POST — INVITE an existing active user to the team (role optional, default
+// MEMBER). They join only when they accept (field reports 2026-10), at which
+// point they are added under the team board's leaders — see team-invitations.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -59,17 +59,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const user = await prisma.user.findFirst({ where: { id: userId, isActive: true }, select: { id: true } })
     if (!user) return NextResponse.json({ error: 'User not found or inactive' }, { status: 404 })
 
-    if (team.members.some((m) => m.userId === userId)) {
-      return NextResponse.json({ error: 'User is already a team member' }, { status: 400 })
-    }
-
-    const member = await prisma.teamMember.create({
-      data: { teamId: params.id, userId, role },
-      include: { user: { select: { id: true, name: true, email: true, image: true, role: true, positionTitle: true } } },
+    const teamRow = await prisma.team.findUnique({ where: { id: params.id }, select: { name: true } })
+    const result = await inviteToTeam({
+      teamId: params.id,
+      teamName: teamRow?.name ?? 'a team',
+      userId,
+      role,
+      invitedById: session.user.id,
+      inviterName: session.user.name || session.user.email || 'A team leader',
     })
-    // Best effort: the membership itself has succeeded either way.
-    await syncTeamMembersToLeaders(params.id).catch((e) => console.error('Leader sync failed:', e))
-    return NextResponse.json({ member }, { status: 201 })
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
+    return NextResponse.json({ invitation: result.invitation }, { status: 201 })
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return NextResponse.json({ error: 'User is already a team member' }, { status: 409 })

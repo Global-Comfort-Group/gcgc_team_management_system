@@ -13,6 +13,8 @@ function entityUrl(n: { entityType?: string | null; entityId?: string | null }):
   const base = process.env.NEXTAUTH_URL || ''
   if (n.entityType === 'task' && n.entityId) return `${base}/user/tasks?task=${n.entityId}`
   if (n.entityType === 'board' && n.entityId) return `${base}/user/tasks?board=${n.entityId}`
+  if (n.entityType === 'team_invitation') return `${base}/user/teams`
+  if (n.entityType === 'team' && n.entityId) return `${base}/user/teams/${n.entityId}`
   return base ? `${base}/user/dashboard` : undefined
 }
 
