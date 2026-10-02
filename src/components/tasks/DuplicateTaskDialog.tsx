@@ -105,7 +105,7 @@ export default function DuplicateTaskDialog({ open, onOpenChange, sourceTask, on
     if (options.collaborators && sourceTask.collaborators) filtered.collaborators = sourceTask.collaborators
     if (options.taskWeight && sourceTask.taskWeight) filtered.taskWeight = sourceTask.taskWeight
     if (options.slaHours && sourceTask.slaHours) filtered.slaHours = sourceTask.slaHours
-    if (options.reminderDays && sourceTask.reminderDays) filtered.reminderDays = sourceTask.reminderDays
+    if (options.reminderDays && sourceTask.reminderHours?.length) filtered.reminderHours = sourceTask.reminderHours
 
     filtered.taskType = sourceTask.taskType || 'INDIVIDUAL'
     if (sourceTask.teamMembers) filtered.teamMembers = sourceTask.teamMembers
