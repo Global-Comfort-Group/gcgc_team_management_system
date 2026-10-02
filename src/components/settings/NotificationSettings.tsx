@@ -46,15 +46,35 @@ export function NotificationSettings() {
     }
   }
 
+  const [emailBusy, setEmailBusy] = useState(false)
+  async function sendTestEmail() {
+    setEmailBusy(true)
+    try {
+      const res = await fetch('/api/notifications/test-email', { method: 'POST' })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || 'Test failed')
+      toast({ title: 'Test email sent', description: `Check ${d.sentTo} (and its spam folder).` })
+    } catch (e: any) {
+      toast({ title: 'Test email failed', description: e?.message || 'Could not send a test email.', variant: 'destructive' })
+    } finally {
+      setEmailBusy(false)
+    }
+  }
+
   const btn = 'px-2.5 h-7 rounded-md text-xs font-semibold border border-slate-200 hover:border-blue-300 disabled:opacity-50'
 
   return (
     <div className="space-y-3 rounded-lg border p-4">
       <h3 className="text-sm font-semibold text-slate-700">Notifications</h3>
-      <label className="flex items-center justify-between text-sm">
-        Email notifications
-        <input type="checkbox" checked={emailOn} onChange={(e) => setEmail(e.target.checked)} className="h-4 w-4 accent-blue-600" />
-      </label>
+      <div className="flex items-center justify-between text-sm">
+        <label htmlFor="email-notifications">Email notifications</label>
+        <div className="flex items-center gap-2">
+          {emailOn && (
+            <button onClick={sendTestEmail} disabled={emailBusy} className={btn}>{emailBusy ? '…' : 'Send test'}</button>
+          )}
+          <input id="email-notifications" type="checkbox" checked={emailOn} onChange={(e) => setEmail(e.target.checked)} className="h-4 w-4 accent-blue-600" />
+        </div>
+      </div>
       <div className="flex items-center justify-between text-sm">
         <span>Browser push notifications</span>
         {supported ? (

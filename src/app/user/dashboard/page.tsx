@@ -16,6 +16,7 @@ import CreateTaskButton from '@/components/tasks/CreateTaskButton'
 import { AtRiskTasksWidget } from '@/components/dashboard/at-risk-tasks-widget'
 import { StatusDonut, CompletionTrend, PriorityBar, WorkloadBar } from '@/components/dashboard/dashboard-charts'
 import { cn } from '@/lib/utils'
+import { PendingInvitations } from '@/components/teams/PendingInvitations'
 import { format, formatDistanceToNow } from 'date-fns'
 import { TASK_PRIORITY_COLORS, TASK_STATUS_COLORS } from '@/constants'
 
@@ -245,6 +246,8 @@ export default function UserDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Team invitations waiting for an answer (renders nothing when none) */}
+      <PendingInvitations />
       {/* Header — refined hero (same white-card family, cleaner palette + depth) */}
       <div
         className="relative overflow-hidden rounded-2xl border border-slate-200/70 shadow-sm motion-safe:animate-slide-up"

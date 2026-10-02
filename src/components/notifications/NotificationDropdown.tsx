@@ -37,6 +37,8 @@ export function NotificationDropdown({ isCollapsed = false }: NotificationDropdo
   }
 
   const getNotificationHref = (notification: any) => {
+    if (notification.entityType === 'team_invitation') return '/user/teams'
+    if (notification.entityType === 'team' && notification.entityId) return `/user/teams/${notification.entityId}`
     if (notification.entityType !== 'task' || !notification.entityId) return null
     return `/user/tasks?taskId=${notification.entityId}`
   }

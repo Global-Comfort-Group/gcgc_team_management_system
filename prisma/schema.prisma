@@ -8,74 +8,76 @@ datasource db {
 }
 
 model User {
-  id                 String             @id @default(cuid())
-  email              String             @unique
-  password           String?
-  name               String?
-  image              String?
-  role               UserRole           @default(MEMBER)
-  hierarchyLevel     HierarchyLevel?    @default(RF1)
-  isActive           Boolean            @default(true)
-  emailVerified      DateTime?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  contactNumber      String?
-  customDepartment   String?
-  customDivision     String?
-  customSection      String?
-  customTeam         String?
-  department         String?
-  division           String?
-  firstName          String?
-  isLeader           Boolean            @default(false)
-  jobLevel           String?
-  lastName           String?
-  middleName         String?
-  organizationalPath String?
-  positionTitle      String?
-  reportsToId        String?
-  section            String?
-  sectorHeadInitials String?
-  shortName          String?
-  team               String?
-  username           String             @unique
-  accounts           Account[]
-  activities         Activity[]
-  comments           Comment[]
-  commentReactions   CommentReaction[]
-  events             Event[]
-  sessions           Session[]
-  taskCollaborators      TaskCollaborator[]  @relation("TaskCollaborators")
-  taskTeamMembers        TaskTeamMember[]    @relation("TaskTeamMembers")
-  taskAssignments        TaskAssignee[]      @relation("TaskAssignees")
-  assignedTasks2         Task[]              @relation("TaskAssignedBy")
-  assignedTasks          Task[]              @relation("TaskAssignee")
-  reviewingTasks         Task[]              @relation("TaskReviewer")
-  createdTasks           Task[]              @relation("TaskCreator")
-  seniorEvaluatedTasks   Task[]              @relation("TaskSeniorEvaluator")
-  taskAttachments        TaskAttachment[]    @relation("TaskAttachmentUploader")
-  boardPins              BoardPin[]          @relation("UserBoardPins")
+  id                     String                @id @default(cuid())
+  email                  String                @unique
+  password               String?
+  name                   String?
+  image                  String?
+  role                   UserRole              @default(MEMBER)
+  hierarchyLevel         HierarchyLevel?       @default(RF1)
+  isActive               Boolean               @default(true)
+  emailVerified          DateTime?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  contactNumber          String?
+  customDepartment       String?
+  customDivision         String?
+  customSection          String?
+  customTeam             String?
+  department             String?
+  division               String?
+  firstName              String?
+  isLeader               Boolean               @default(false)
+  jobLevel               String?
+  lastName               String?
+  middleName             String?
+  organizationalPath     String?
+  positionTitle          String?
+  reportsToId            String?
+  section                String?
+  sectorHeadInitials     String?
+  shortName              String?
+  team                   String?
+  username               String                @unique
+  accounts               Account[]
+  activities             Activity[]
+  comments               Comment[]
+  commentReactions       CommentReaction[]
+  events                 Event[]
+  sessions               Session[]
+  taskCollaborators      TaskCollaborator[]    @relation("TaskCollaborators")
+  taskTeamMembers        TaskTeamMember[]      @relation("TaskTeamMembers")
+  taskAssignments        TaskAssignee[]        @relation("TaskAssignees")
+  assignedTasks2         Task[]                @relation("TaskAssignedBy")
+  assignedTasks          Task[]                @relation("TaskAssignee")
+  reviewingTasks         Task[]                @relation("TaskReviewer")
+  createdTasks           Task[]                @relation("TaskCreator")
+  seniorEvaluatedTasks   Task[]                @relation("TaskSeniorEvaluator")
+  taskAttachments        TaskAttachment[]      @relation("TaskAttachmentUploader")
+  boardPins              BoardPin[]            @relation("UserBoardPins")
   teamMembers            TeamMember[]
+  teamInvitations        TeamInvitation[]      @relation("TeamInvitee")
+  sentTeamInvitations    TeamInvitation[]      @relation("TeamInviter")
   ossbRequests           OSSBRequest[]
-  reportsTo              User?               @relation("UserReportsTo", fields: [reportsToId], references: [id])
-  subordinates           User[]              @relation("UserReportsTo")
+  reportsTo              User?                 @relation("UserReportsTo", fields: [reportsToId], references: [id])
+  subordinates           User[]                @relation("UserReportsTo")
   notifications          Notification[]
-  deliverableSubmissions TaskDeliverable[]   @relation("DeliverableSubmitter")
-  evaluationsGiven       TaskEvaluation[]    @relation("EvaluationGiven")
-  evaluationsReceived    TaskEvaluation[]    @relation("EvaluationReceived")
-  procurementsCreated    TaskProcurement[]   @relation("ProcurementCreator")
-  boards                 KanbanBoard[]       @relation("BoardOwner")
-  ownedTeams             Team[]              @relation("TeamOwner")
-  boardMemberships       KanbanBoardMember[] @relation("BoardMember")
-  boardReviewerOf        BoardReviewer[]     @relation("BoardReviewerUser")
-  boardRoles        BoardRoleAssignment[] @relation("BoardRoleUser")
-  leadingMembers         LeaderMembership[]  @relation("LeaderMemberships")
-  memberOfLeaders        LeaderMembership[]  @relation("MemberMemberships")
+  deliverableSubmissions TaskDeliverable[]     @relation("DeliverableSubmitter")
+  evaluationsGiven       TaskEvaluation[]      @relation("EvaluationGiven")
+  evaluationsReceived    TaskEvaluation[]      @relation("EvaluationReceived")
+  procurementsCreated    TaskProcurement[]     @relation("ProcurementCreator")
+  boards                 KanbanBoard[]         @relation("BoardOwner")
+  ownedTeams             Team[]                @relation("TeamOwner")
+  boardMemberships       KanbanBoardMember[]   @relation("BoardMember")
+  boardReviewerOf        BoardReviewer[]       @relation("BoardReviewerUser")
+  boardRoles             BoardRoleAssignment[] @relation("BoardRoleUser")
+  leadingMembers         LeaderMembership[]    @relation("LeaderMemberships")
+  memberOfLeaders        LeaderMembership[]    @relation("MemberMemberships")
   passwordResetTokens    PasswordResetToken[]
-  emailNotifications     Boolean            @default(true)
-  pushNotifications      Boolean            @default(true)
+  emailNotifications     Boolean               @default(true)
+  pushNotifications      Boolean               @default(true)
   pushSubscriptions      PushSubscription[]
-  apiTokens              ApiToken[]         @relation("UserApiTokens")
+  apiTokens              ApiToken[]            @relation("UserApiTokens")
 
   @@map("users")
 }
@@ -86,7 +88,7 @@ model User {
 model ApiToken {
   id         String    @id @default(cuid())
   userId     String
-  name       String    // human label, e.g. "my-agent"
+  name       String // human label, e.g. "my-agent"
   tokenHash  String    @unique // SHA-256 hex of the raw token
   lastUsedAt DateTime?
   revokedAt  DateTime?
@@ -98,17 +100,17 @@ model ApiToken {
 }
 
 model Notification {
-  id          String           @id @default(cuid())
-  userId      String
-  type        NotificationType
-  title       String
-  message     String
-  isRead      Boolean          @default(false)
-  entityId    String?          // ID of related entity (task, etc.)
-  entityType  String?          // Type of entity (task, comment, etc.)
-  createdAt   DateTime         @default(now())
-  readAt      DateTime?
-  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String           @id @default(cuid())
+  userId     String
+  type       NotificationType
+  title      String
+  message    String
+  isRead     Boolean          @default(false)
+  entityId   String? // ID of related entity (task, etc.)
+  entityType String? // Type of entity (task, comment, etc.)
+  createdAt  DateTime         @default(now())
+  readAt     DateTime?
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, isRead])
   @@index([userId, createdAt])
@@ -124,22 +126,23 @@ enum NotificationType {
   MENTION
   DEADLINE_REMINDER
   BOARD_MEMBER_ADDED
+  TEAM_INVITATION
 }
 
 model Admin {
-  id              String           @id @default(cuid())
-  username        String           @unique
+  id              String          @id @default(cuid())
+  username        String          @unique
   password        String
-  isActive        Boolean          @default(true)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
   adminActivities AdminActivity[]
 
   @@map("admins")
 }
 
 model AdminActivity {
-  id            String             @id @default(cuid())
+  id            String            @id @default(cuid())
   adminId       String?
   adminUsername String?
   action        AdminActionType
@@ -148,10 +151,10 @@ model AdminActivity {
   targetId      String?
   ipAddress     String?
   userAgent     String?
-  status        AdminActionStatus  @default(SUCCESS)
+  status        AdminActionStatus @default(SUCCESS)
   metadata      Json?
-  createdAt     DateTime           @default(now())
-  admin         Admin?             @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  createdAt     DateTime          @default(now())
+  admin         Admin?            @relation(fields: [adminId], references: [id], onDelete: SetNull)
 
   @@index([adminId])
   @@index([createdAt])
@@ -176,28 +179,28 @@ model PasswordResetToken {
 }
 
 model Invitation {
-  id              String           @id @default(cuid())
-  token           String           @unique
-  email           String
-  role            UserRole         @default(MEMBER)
-  hierarchyLevel  HierarchyLevel?
-  isLeader        Boolean          @default(false)
-  division        String?
-  department      String?
-  section         String?
-  team            String?
-  positionTitle   String?
-  jobLevel        String?
-  reportsToId     String?
-  status          InvitationStatus @default(PENDING)
-  expiresAt       DateTime
-  createdByAdminId String?
+  id                     String           @id @default(cuid())
+  token                  String           @unique
+  email                  String
+  role                   UserRole         @default(MEMBER)
+  hierarchyLevel         HierarchyLevel?
+  isLeader               Boolean          @default(false)
+  division               String?
+  department             String?
+  section                String?
+  team                   String?
+  positionTitle          String?
+  jobLevel               String?
+  reportsToId            String?
+  status                 InvitationStatus @default(PENDING)
+  expiresAt              DateTime
+  createdByAdminId       String?
   createdByAdminUsername String?
-  acceptedByUserId String?
-  acceptedAt      DateTime?
-  revokedAt       DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  acceptedByUserId       String?
+  acceptedAt             DateTime?
+  revokedAt              DateTime?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
 
   @@index([email])
   @@index([status])
@@ -244,18 +247,19 @@ model VerificationToken {
 }
 
 model Team {
-  id          String       @id @default(cuid())
+  id          String           @id @default(cuid())
   name        String
   description String?
-  isActive    Boolean      @default(true)
-  ownerId     String?      // creator-of-record (nullable: existing admin-created teams stay null)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  isActive    Boolean          @default(true)
+  ownerId     String? // creator-of-record (nullable: existing admin-created teams stay null)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
   events      Event[]
   tasks       Task[]
   members     TeamMember[]
-  owner       User?        @relation("TeamOwner", fields: [ownerId], references: [id])
-  board       KanbanBoard? @relation("TeamBoard")
+  invitations TeamInvitation[]
+  owner       User?            @relation("TeamOwner", fields: [ownerId], references: [id])
+  board       KanbanBoard?     @relation("TeamBoard")
 
   @@map("teams")
 }
@@ -273,15 +277,44 @@ model TeamMember {
   @@map("team_members")
 }
 
+/// An invitation to join a team. Adding someone to a team creates one of
+/// these instead of a TeamMember; the TeamMember row is created only when the
+/// invitee accepts (field reports 2026-10). One row per (team, user): a
+/// re-invite after a decline reuses it and sets it back to PENDING.
+model TeamInvitation {
+  id          String               @id @default(cuid())
+  teamId      String
+  userId      String
+  invitedById String
+  role        TeamMemberRole       @default(MEMBER)
+  status      TeamInvitationStatus @default(PENDING)
+  createdAt   DateTime             @default(now())
+  respondedAt DateTime?
+  team        Team                 @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user        User                 @relation("TeamInvitee", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy   User                 @relation("TeamInviter", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId, status])
+  @@map("team_invitations")
+}
+
+enum TeamInvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+}
+
 model KanbanBoard {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  color       String   @default("#3B82F6")
-  ownerId     String
-  teamId      String?  @unique // non-null => this is a team board (one board per team)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  name                String
+  description         String?
+  color               String   @default("#3B82F6")
+  ownerId             String
+  teamId              String?  @unique // non-null => this is a team board (one board per team)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
   // Project Info: optional manual override of the actual project %. Null => the
   // actual is computed (weighted measurements, else average finished-task %).
   manualActualPercent Int?
@@ -290,22 +323,22 @@ model KanbanBoard {
   // global unique on Task.ticketNumber. Uniqueness also makes "bump that
   // prefix's counter" well defined. Null => tasks on this board fall back to
   // the global TicketSequence prefix.
-  ticketPrefix  String? @unique @db.VarChar(10)
+  ticketPrefix        String?  @unique @db.VarChar(10)
   // Last number issued. Never decremented: reusing a number after a delete
   // would make an old reference point at different work.
-  ticketCounter Int     @default(0)
+  ticketCounter       Int      @default(0)
 
-  owner    User                @relation("BoardOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  team     Team?               @relation("TeamBoard", fields: [teamId], references: [id], onDelete: Cascade)
-  tasks     Task[]
-  members   KanbanBoardMember[]
-  reviewers BoardReviewer[]
-  roles     BoardRole[]
-  taskTemplates BoardTaskTemplate[]
-  statuses  BoardStatus[]
-  fields   BoardField[]
-  forms    IntakeForm[]
-  pins     BoardPin[]
+  owner          User                 @relation("BoardOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  team           Team?                @relation("TeamBoard", fields: [teamId], references: [id], onDelete: Cascade)
+  tasks          Task[]
+  members        KanbanBoardMember[]
+  reviewers      BoardReviewer[]
+  roles          BoardRole[]
+  taskTemplates  BoardTaskTemplate[]
+  statuses       BoardStatus[]
+  fields         BoardField[]
+  forms          IntakeForm[]
+  pins           BoardPin[]
   measurements   BoardMeasurement[]
   quarterTargets BoardQuarterTarget[]
 
@@ -319,7 +352,7 @@ model BoardPin {
   userId    String
   boardId   String
   starred   Boolean     @default(false)
-  category  String?     // user-defined grouping label (e.g. "Finance", "Side projects")
+  category  String? // user-defined grouping label (e.g. "Finance", "Side projects")
   createdAt DateTime    @default(now())
   user      User        @relation("UserBoardPins", fields: [userId], references: [id], onDelete: Cascade)
   board     KanbanBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
@@ -470,9 +503,9 @@ model BoardQuarterTarget {
   id            String   @id @default(cuid())
   boardId       String
   year          Int
-  quarter       Int      // 1..4
+  quarter       Int // 1..4
   targetPercent Int      @default(0)
-  actualPercent Int?     // null => show the live actual for the current quarter
+  actualPercent Int? // null => show the live actual for the current quarter
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -484,104 +517,106 @@ model BoardQuarterTarget {
 }
 
 model Task {
-  id                    String             @id @default(cuid())
-  title                 String
-  description           String?
-  status                TaskStatus         @default(TODO)
-  priority              Priority           @default(MEDIUM)
-  dueDate               DateTime?
-  startDate             DateTime?
-  assigneeId            String?
-  creatorId             String
-  teamId                String?
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
-  assignedById          String?
+  id                         String              @id @default(cuid())
+  title                      String
+  description                String?
+  status                     TaskStatus          @default(TODO)
+  priority                   Priority            @default(MEDIUM)
+  dueDate                    DateTime?
+  startDate                  DateTime?
+  assigneeId                 String?
+  creatorId                  String
+  teamId                     String?
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
+  assignedById               String?
   // Board Reviewers: the leader assigned to review this task (from its board's
   // reviewer pool). Null = unassigned. Enforced only when the board has a pool.
-  reviewerId            String?
-  progressPercentage    Int                @default(0)
-  taskType              TaskType           @default(INDIVIDUAL)
-  googleCalendarId      String?
-  googleCalendarEventId String?
-  syncedAt              DateTime?
+  reviewerId                 String?
+  progressPercentage         Int                 @default(0)
+  taskType                   TaskType            @default(INDIVIDUAL)
+  googleCalendarId           String?
+  googleCalendarEventId      String?
+  syncedAt                   DateTime?
   // New Google Calendar-compatible fields
-  location              String?            // Physical location or address (e.g., "Conference Room A", "123 Main St")
-  meetingLink           String?            // Virtual meeting link (e.g., Google Meet, Zoom, Teams)
-  allDay                Boolean            @default(false) // All-day task flag
-  recurrence            String?            // Recurrence rule (RRULE format)
-  reminders             Json?              // Notification reminders in JSON format
+  location                   String? // Physical location or address (e.g., "Conference Room A", "123 Main St")
+  meetingLink                String? // Virtual meeting link (e.g., Google Meet, Zoom, Teams)
+  allDay                     Boolean             @default(false) // All-day task flag
+  recurrence                 String? // Recurrence rule (RRULE format)
+  reminders                  Json? // Notification reminders in JSON format
   // Subtask support
-  parentId              String?            // Parent task ID for subtasks
-  cascadeOrder          Int?               // Step number in a CASCADING task (1, 2, 3…)
-  isLocked              Boolean            @default(false) // Cascading step waiting for previous step to complete
-  isCascading           Boolean            @default(false) // Cascading is now a toggle (like recurring), not a taskType
+  parentId                   String? // Parent task ID for subtasks
+  cascadeOrder               Int? // Step number in a CASCADING task (1, 2, 3…)
+  isLocked                   Boolean             @default(false) // Cascading step waiting for previous step to complete
+  isCascading                Boolean             @default(false) // Cascading is now a toggle (like recurring), not a taskType
   // Recurring task support
-  isRecurring           Boolean            @default(false)
-  recurringFrequency    RecurringFrequency?
-  recurringInterval     Int?               // Every N days/weeks/months/years (default 1)
-  recurringDaysOfWeek   Int[]              @default([]) // 0=Sun..6=Sat (weekly only)
-  recurringEndDate      DateTime?          // Series end date (optional — null = indefinite)
-  recurringParentId     String?            // Set on instances; null on template
+  isRecurring                Boolean             @default(false)
+  recurringFrequency         RecurringFrequency?
+  recurringInterval          Int? // Every N days/weeks/months/years (default 1)
+  recurringDaysOfWeek        Int[]               @default([]) // 0=Sun..6=Sat (weekly only)
+  recurringEndDate           DateTime? // Series end date (optional — null = indefinite)
+  recurringParentId          String? // Set on instances; null on template
   // Completion tracking
-  memberSubmittedAt     DateTime?          // When member moved task to IN_REVIEW
-  leaderEvaluatedAt     DateTime?          // When leader approved/completed the task
+  memberSubmittedAt          DateTime? // When member moved task to IN_REVIEW
+  leaderEvaluatedAt          DateTime? // When leader approved/completed the task
   // Work quality evaluation
-  workQuality           WorkQuality?       // Direct leader's quality rating
-  seniorWorkQuality     WorkQuality?       // Senior leader override rating
-  seniorEvaluatorId     String?            // Who performed the senior override
-  seniorEvaluatedAt     DateTime?          // When the override was set
+  workQuality                WorkQuality? // Direct leader's quality rating
+  seniorWorkQuality          WorkQuality? // Senior leader override rating
+  seniorEvaluatorId          String? // Who performed the senior override
+  seniorEvaluatedAt          DateTime? // When the override was set
   // Task gravity / SLA
-  taskWeight            Int?               // 1–5 importance/gravity score (leader-defined)
-  slaHours              Int?               // SLA target in hours (e.g. 8, 24, 48, 72)
+  taskWeight                 Int? // 1–5 importance/gravity score (leader-defined)
+  slaHours                   Int? // SLA target in hours (e.g. 8, 24, 48, 72)
   // Custom notification reminders
-  reminderDays          Int[]              @default([]) // Days before deadline to send reminder
+  reminderDays               Int[]               @default([]) // DEPRECATED: superseded by reminderHours (kept for rollback)
+  reminderHours              Int[]               @default([]) // Hours before the due date to send a reminder
+  remindersSentHours         Int[]               @default([]) // Which reminderHours have been sent for the current due date
   // Kanban board
-  boardId               String?
-  board                 KanbanBoard?       @relation(fields: [boardId], references: [id], onDelete: SetNull)
+  boardId                    String?
+  board                      KanbanBoard?        @relation(fields: [boardId], references: [id], onDelete: SetNull)
   // Per-board custom status (display layer over `status`/category). Null => use
   // the default column for the task's category.
-  customStatusId        String?
-  customStatus          BoardStatus?       @relation("TaskCustomStatus", fields: [customStatusId], references: [id], onDelete: SetNull)
+  customStatusId             String?
+  customStatus               BoardStatus?        @relation("TaskCustomStatus", fields: [customStatusId], references: [id], onDelete: SetNull)
   // Snapshot taken when a task is archived to the Backlog, so restoring puts it
   // back where it was instead of dumping everything into To Do at 0%. Null for
   // tasks archived before this existed — those still restore to TODO/0.
   // Human-quotable id, e.g. "OPS-14". Denormalised so lists and search need no
   // board join, and so a manually-set number survives a move between boards.
-  ticketNumber               String?     @unique
+  ticketNumber               String?             @unique
   // #5 "assign per role": the task is ADDRESSED to a role. assigneeId stays
   // authoritative for ownership — notifications, workload, "my tasks" and
   // overdue all key off a real user, and would silently skip a task owned only
   // by a role.
   assignedRoleId             String?
-  assignedRole               BoardRole?  @relation("TaskAssignedRole", fields: [assignedRoleId], references: [id], onDelete: SetNull)
+  assignedRole               BoardRole?          @relation("TaskAssignedRole", fields: [assignedRoleId], references: [id], onDelete: SetNull)
   backlogPriorStatus         TaskStatus?
   backlogPriorProgress       Int?
   backlogPriorCustomStatusId String?
   // Per-board custom field values
-  fieldValues           TaskFieldValue[]
+  fieldValues                TaskFieldValue[]
   // Relations
-  parent                Task?              @relation("TaskSubtasks", fields: [parentId], references: [id], onDelete: Cascade)
-  subtasks              Task[]             @relation("TaskSubtasks")
-  recurringParent       Task?              @relation("RecurringInstances", fields: [recurringParentId], references: [id], onDelete: Cascade)
-  recurringInstances    Task[]             @relation("RecurringInstances")
-  dependencies          TaskDependency[]   @relation("DependentTask")
-  blockedBy             TaskDependency[]   @relation("BlockerTask")
-  deliverables          TaskDeliverable[]
-  attachments           TaskAttachment[]
-  procurements          TaskProcurement[]
-  evaluations           TaskEvaluation[]
-  comments              Comment[]
-  events                Event[]
-  collaborators         TaskCollaborator[]
-  teamMembers           TaskTeamMember[]
-  assignees             TaskAssignee[]
-  assignedBy            User?              @relation("TaskAssignedBy", fields: [assignedById], references: [id])
-  assignee              User?              @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  reviewer              User?              @relation("TaskReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
-  creator               User               @relation("TaskCreator", fields: [creatorId], references: [id])
-  team                  Team?              @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  seniorEvaluator       User?              @relation("TaskSeniorEvaluator", fields: [seniorEvaluatorId], references: [id])
+  parent                     Task?               @relation("TaskSubtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks                   Task[]              @relation("TaskSubtasks")
+  recurringParent            Task?               @relation("RecurringInstances", fields: [recurringParentId], references: [id], onDelete: Cascade)
+  recurringInstances         Task[]              @relation("RecurringInstances")
+  dependencies               TaskDependency[]    @relation("DependentTask")
+  blockedBy                  TaskDependency[]    @relation("BlockerTask")
+  deliverables               TaskDeliverable[]
+  attachments                TaskAttachment[]
+  procurements               TaskProcurement[]
+  evaluations                TaskEvaluation[]
+  comments                   Comment[]
+  events                     Event[]
+  collaborators              TaskCollaborator[]
+  teamMembers                TaskTeamMember[]
+  assignees                  TaskAssignee[]
+  assignedBy                 User?               @relation("TaskAssignedBy", fields: [assignedById], references: [id])
+  assignee                   User?               @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  reviewer                   User?               @relation("TaskReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  creator                    User                @relation("TaskCreator", fields: [creatorId], references: [id])
+  team                       Team?               @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  seniorEvaluator            User?               @relation("TaskSeniorEvaluator", fields: [seniorEvaluatorId], references: [id])
 
   @@index([assigneeId])
   @@index([creatorId])
@@ -596,10 +631,10 @@ model Task {
 model TaskAttachment {
   id           String   @id @default(cuid())
   taskId       String
-  fileUrl      String   // URL to file in OSS
-  fileName     String   // Original filename
-  fileType     String?  // MIME type
-  fileSize     Int?     // Size in bytes
+  fileUrl      String // URL to file in OSS
+  fileName     String // Original filename
+  fileType     String? // MIME type
+  fileSize     Int? // Size in bytes
   uploadedById String
   createdAt    DateTime @default(now())
   task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
@@ -658,11 +693,11 @@ model Comment {
   taskId    String
   authorId  String
   parentId  String?
-  imageUrl  String?           // Legacy: kept for backward compatibility
-  fileUrl   String?           // URL to file in OSS
-  fileName  String?           // Original filename
-  fileType  String?           // MIME type
-  fileSize  Int?              // Size in bytes
+  imageUrl  String? // Legacy: kept for backward compatibility
+  fileUrl   String? // URL to file in OSS
+  fileName  String? // Original filename
+  fileType  String? // MIME type
+  fileSize  Int? // Size in bytes
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
   author    User              @relation(fields: [authorId], references: [id], onDelete: Cascade)
@@ -691,25 +726,25 @@ model CommentReaction {
 }
 
 model Event {
-  id                 String    @id @default(cuid())
-  title              String
-  description        String?
-  startTime          DateTime
-  endTime            DateTime
-  allDay             Boolean   @default(false)
-  color              String?
-  type               EventType @default(MEETING)
-  creatorId          String
-  teamId             String?
-  taskId             String?
-  googleCalendarId   String?
+  id                    String    @id @default(cuid())
+  title                 String
+  description           String?
+  startTime             DateTime
+  endTime               DateTime
+  allDay                Boolean   @default(false)
+  color                 String?
+  type                  EventType @default(MEETING)
+  creatorId             String
+  teamId                String?
+  taskId                String?
+  googleCalendarId      String?
   googleCalendarEventId String?
-  syncedAt           DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  creator            User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  task               Task?     @relation(fields: [taskId], references: [id])
-  team               Team?     @relation(fields: [teamId], references: [id])
+  syncedAt              DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  creator               User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  task                  Task?     @relation(fields: [taskId], references: [id])
+  team                  Team?     @relation(fields: [teamId], references: [id])
 
   @@index([creatorId])
   @@index([taskId])
@@ -870,24 +905,24 @@ model AdminSettings {
 }
 
 model CalendarSyncSettings {
-  id                      String              @id @default(cuid())
-  userId                  String              @unique
-  isEnabled               Boolean             @default(false)
-  googleCalendarId        String?
-  syncDirection           CalendarSyncDirection @default(BOTH)
-  syncTaskDeadlines       Boolean             @default(true)
-  syncTeamEvents          Boolean             @default(true)
-  syncPersonalEvents      Boolean             @default(true)
-  googleAccessToken       String?
-  googleRefreshToken      String?
-  googleTokenExpiry       DateTime?
-  webhookChannelId        String?
-  webhookChannelToken     String?
-  webhookResourceId       String?
-  webhookExpiration       DateTime?
-  lastSyncedAt            DateTime?
-  createdAt               DateTime            @default(now())
-  updatedAt               DateTime            @updatedAt
+  id                  String                @id @default(cuid())
+  userId              String                @unique
+  isEnabled           Boolean               @default(false)
+  googleCalendarId    String?
+  syncDirection       CalendarSyncDirection @default(BOTH)
+  syncTaskDeadlines   Boolean               @default(true)
+  syncTeamEvents      Boolean               @default(true)
+  syncPersonalEvents  Boolean               @default(true)
+  googleAccessToken   String?
+  googleRefreshToken  String?
+  googleTokenExpiry   DateTime?
+  webhookChannelId    String?
+  webhookChannelToken String?
+  webhookResourceId   String?
+  webhookExpiration   DateTime?
+  lastSyncedAt        DateTime?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
 
   @@map("calendar_sync_settings")
 }
@@ -1039,10 +1074,10 @@ enum CalendarSyncDirection {
 }
 
 enum WorkQuality {
-  NONE      // 0%
-  POOR      // 25%
-  FAIR      // 50%
-  GOOD      // 75%
+  NONE // 0%
+  POOR // 25%
+  FAIR // 50%
+  GOOD // 75%
   EXCELLENT // 100%
 }
 
@@ -1067,11 +1102,11 @@ enum ProcurementStatus {
 
 model TaskDependency {
   id          String   @id @default(cuid())
-  taskId      String                  // the BLOCKED task
-  dependsOnId String                  // must complete before taskId can start
+  taskId      String // the BLOCKED task
+  dependsOnId String // must complete before taskId can start
   createdAt   DateTime @default(now())
-  task        Task     @relation("DependentTask", fields: [taskId],      references: [id], onDelete: Cascade)
-  dependsOn   Task     @relation("BlockerTask",   fields: [dependsOnId], references: [id], onDelete: Cascade)
+  task        Task     @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn   Task     @relation("BlockerTask", fields: [dependsOnId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, dependsOnId])
   @@map("task_dependencies")
@@ -1086,7 +1121,7 @@ model TaskDeliverable {
   completedAt   DateTime?
   submittedById String?
   createdAt     DateTime  @default(now())
-  task          Task      @relation(fields: [taskId],       references: [id], onDelete: Cascade)
+  task          Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   submittedBy   User?     @relation("DeliverableSubmitter", fields: [submittedById], references: [id])
 
   @@map("task_deliverables")
@@ -1097,13 +1132,13 @@ model TaskEvaluation {
   evaluatorId     String
   evaluateeId     String
   period          EvaluationPeriod
-  gradientScore   Int              // 0, 25, 50, 75, or 100
+  gradientScore   Int // 0, 25, 50, 75, or 100
   comments        String?
   evaluatedAt     DateTime         @default(now())
   periodStartDate DateTime
   periodEndDate   DateTime
-  taskId          String?          // optional link to a specific task
-  evaluator       User             @relation("EvaluationGiven",    fields: [evaluatorId], references: [id])
+  taskId          String? // optional link to a specific task
+  evaluator       User             @relation("EvaluationGiven", fields: [evaluatorId], references: [id])
   evaluatee       User             @relation("EvaluationReceived", fields: [evaluateeId], references: [id])
   task            Task?            @relation(fields: [taskId], references: [id])
 
@@ -1111,50 +1146,50 @@ model TaskEvaluation {
 }
 
 model TaskProcurement {
-  id              String            @id @default(cuid())
-  taskId          String
-  type            ProcurementType
-  status          ProcurementStatus @default(PENDING)
-  notes           String?
-  fileUrl         String?
-  fileName        String?
-  fileSize        Int?
-  fileType        String?
-  objectKey       String?
-  createdById     String
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  task            Task              @relation(fields: [taskId],     references: [id], onDelete: Cascade)
-  createdBy       User              @relation("ProcurementCreator", fields: [createdById], references: [id])
+  id          String            @id @default(cuid())
+  taskId      String
+  type        ProcurementType
+  status      ProcurementStatus @default(PENDING)
+  notes       String?
+  fileUrl     String?
+  fileName    String?
+  fileSize    Int?
+  fileType    String?
+  objectKey   String?
+  createdById String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  task        Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdBy   User              @relation("ProcurementCreator", fields: [createdById], references: [id])
 
   @@map("task_procurements")
 }
 
 model OSSBRequest {
-  id                    String              @id @default(cuid())
-  referenceNo           String              @unique @default(cuid())
+  id          String @id @default(cuid())
+  referenceNo String @unique @default(cuid())
 
   // Section 1: Header Information
-  branchOrDepartment    String
-  objectiveTitle        String
-  versionNo             String?
-  partOfAnnualPlan      Boolean             @default(false)
+  branchOrDepartment String
+  objectiveTitle     String
+  versionNo          String?
+  partOfAnnualPlan   Boolean @default(false)
 
   // Section 2: Project Information
-  mipClassification     MIPClassification
-  kraOrCpaNumber        Int?
-  projectNumber         Int?
-  kraOrCpaName          String?
-  titleObjective        String
-  startDate             DateTime
-  endDate               DateTime
+  mipClassification MIPClassification
+  kraOrCpaNumber    Int?
+  projectNumber     Int?
+  kraOrCpaName      String?
+  titleObjective    String
+  startDate         DateTime
+  endDate           DateTime
 
   // Section 3: Specific Standards / Success Measures (up to 4)
-  successMeasures       Json                // Array of success measure strings
+  successMeasures Json // Array of success measure strings
 
   // Section 4: Program Steps (dynamic/repeatable)
-  programSteps          OSSBProgramStep[]
-  totalBudget           Float               @default(0)
+  programSteps OSSBProgramStep[]
+  totalBudget  Float             @default(0)
 
   // Section 5: Signatories
   preparedBy            String?
@@ -1171,52 +1206,52 @@ model OSSBRequest {
   dateApproved          DateTime?
 
   // Section 6: Attachments / Supporting Documents
-  hasGuidelines         Boolean             @default(false)
-  hasComputationValue   Boolean             @default(false)
-  otherAttachments      String?
-  attachments           OSSBAttachment[]
+  hasGuidelines       Boolean          @default(false)
+  hasComputationValue Boolean          @default(false)
+  otherAttachments    String?
+  attachments         OSSBAttachment[]
 
   // Section 7: CC / Remarks
-  ccRecipients          String?
-  remarks               String?
+  ccRecipients String?
+  remarks      String?
 
   // Meta fields
-  status                OSSBStatus          @default(DRAFT)
-  creatorId             String
-  createdAt             DateTime            @default(now())
-  updatedAt             DateTime            @updatedAt
-  submittedAt           DateTime?
+  status      OSSBStatus @default(DRAFT)
+  creatorId   String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  submittedAt DateTime?
 
-  creator               User                @relation(fields: [creatorId], references: [id])
+  creator User @relation(fields: [creatorId], references: [id])
 
   @@map("ossb_requests")
 }
 
 model OSSBProgramStep {
-  id                    String              @id @default(cuid())
-  ossbRequestId         String
-  stepNumber            Int
-  description           String
-  responsiblePerson     String
-  deadline              DateTime
-  budget                Float               @default(0)
-  createdAt             DateTime            @default(now())
+  id                String   @id @default(cuid())
+  ossbRequestId     String
+  stepNumber        Int
+  description       String
+  responsiblePerson String
+  deadline          DateTime
+  budget            Float    @default(0)
+  createdAt         DateTime @default(now())
 
-  ossbRequest           OSSBRequest         @relation(fields: [ossbRequestId], references: [id], onDelete: Cascade)
+  ossbRequest OSSBRequest @relation(fields: [ossbRequestId], references: [id], onDelete: Cascade)
 
   @@map("ossb_program_steps")
 }
 
 model OSSBAttachment {
-  id                    String              @id @default(cuid())
-  ossbRequestId         String
-  fileName              String
-  fileUrl               String
-  fileSize              Int
-  fileType              String
-  uploadedAt            DateTime            @default(now())
+  id            String   @id @default(cuid())
+  ossbRequestId String
+  fileName      String
+  fileUrl       String
+  fileSize      Int
+  fileType      String
+  uploadedAt    DateTime @default(now())
 
-  ossbRequest           OSSBRequest         @relation(fields: [ossbRequestId], references: [id], onDelete: Cascade)
+  ossbRequest OSSBRequest @relation(fields: [ossbRequestId], references: [id], onDelete: Cascade)
 
   @@map("ossb_attachments")
 }
@@ -1338,7 +1373,7 @@ model BoardTaskTemplate {
   taskWeight    Int?
   slaHours      Int?
   defaultRoleId String?
-  checklist     Json?     // [{ title }] seeded as subtasks
+  checklist     Json? // [{ title }] seeded as subtasks
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

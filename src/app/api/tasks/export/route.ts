@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { hasPermission } from '@/lib/permissions'
 import { PERMISSIONS } from '@/constants'
 import ExcelJS from 'exceljs'
+import { ymdInAppTz } from '@/lib/app-timezone'
 
 export const dynamic = 'force-dynamic'
 
@@ -113,7 +114,8 @@ export async function GET(req: NextRequest) {
       t.collaborators?.forEach((c: any) => { if (c.user) m.set(c.user.id, c.user) })
       return Array.from(m.values()).map((u: any) => u.name || u.email).join(', ')
     }
-    const ymd = (d: any): string => (d ? new Date(d).toISOString().slice(0, 10) : '')
+    // Philippine dates: UTC slicing showed a local-midnight due date as the day before.
+    const ymd = (d: any): string => ymdInAppTz(d)
 
     // Custom field columns — only meaningful when exporting a single board.
     let boardFields: { id: string; name: string; type: string }[] = []

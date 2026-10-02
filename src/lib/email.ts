@@ -26,10 +26,25 @@ export function renderNotificationEmail(n: { title: string; message: string; url
   return { subject: `GCGC TMS · ${n.title}`, html }
 }
 
+export class EmailNotConfiguredError extends Error {
+  constructor() { super('Email is not set up on this server (RESEND_API_KEY is missing).') }
+}
+
+/**
+ * Send one notification email. Throws on failure.
+ *
+ * Resend reports a rejected send (unverified sender domain, bad key, rate
+ * limit) in the RESOLVED result as `{ error }` — it does not throw. This used
+ * to ignore that result, so every failed email vanished without a log line
+ * (field reports 2026-10: "users don't get notification emails").
+ */
 export async function sendNotificationEmail(to: string, n: { title: string; message: string; url?: string }): Promise<void> {
   const key = process.env.RESEND_API_KEY
-  if (!key) { console.info('[email] RESEND_API_KEY unset — skipping email to', to); return }
+  if (!key) throw new EmailNotConfiguredError()
   const { subject, html } = renderNotificationEmail(n)
   const resend = new Resend(key)
-  await resend.emails.send({ from: FROM, to, subject, html })
+  const result = await resend.emails.send({ from: FROM, to, subject, html })
+  if (result?.error) {
+    throw new Error(`Resend rejected the email from ${FROM}: ${result.error.message || result.error.name || 'unknown error'}`)
+  }
 }

@@ -82,13 +82,13 @@ export async function POST(req: NextRequest) {
         teamMembers: { select: { userId: true } },
         collaborators: { select: { userId: true } },
         assignees: { select: { userId: true } },
-        board: { select: { ownerId: true } },
+        board: { select: { ownerId: true, teamId: true } },
       },
     })
     const tasksById = new Map(tasks.map(t => [t.id, t]))
 
     // Pre-fetch the actor's TeamMember role for each unique team in one go.
-    const teamIds = Array.from(new Set(tasks.map(t => t.teamId).filter((x): x is string => !!x)))
+    const teamIds = Array.from(new Set(tasks.flatMap(t => [t.teamId, t.board?.teamId]).filter((x): x is string => !!x)))
     const memberships = teamIds.length
       ? await prisma.teamMember.findMany({
           where: { userId, teamId: { in: teamIds } },
@@ -128,7 +128,10 @@ export async function POST(req: NextRequest) {
       }
 
       const teamMemberRole = task.teamId ? teamRoleByTeamId.get(task.teamId) : undefined
+      // A LEADER of the board's team leads its tasks whatever their account role.
+      const boardTeamRole = task.board?.teamId ? teamRoleByTeamId.get(task.board.teamId) : undefined
       const isBoardLeader =
+        isTeamLeader(boardTeamRole) ||
         (userRole === 'LEADER' && isTeamLeader(teamMemberRole)) ||
         (!!task.boardId && ledBoardIds.has(task.boardId))
       // Owner = board owner, or (for a board-less task) the creator.

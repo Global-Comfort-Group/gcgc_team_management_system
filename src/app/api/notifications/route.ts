@@ -47,53 +47,6 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST - Create a notification (internal use)
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const body = await req.json()
-    const { userId, type, title, message, entityId, entityType } = body
-
-    if (!userId || !type || !title || !message) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      )
-    }
-
-    const notification = await prisma.notification.create({
-      data: {
-        userId,
-        type,
-        title,
-        message,
-        entityId,
-        entityType,
-      },
-    })
-
-    // Emit socket event for real-time notification
-    if (global.io) {
-      global.io.to(`user-${userId}`).emit('new-notification', {
-        notification,
-        timestamp: new Date().toISOString(),
-      })
-    }
-
-    return NextResponse.json({ notification }, { status: 201 })
-  } catch (error) {
-    console.error('Error creating notification:', error)
-    return NextResponse.json(
-      { error: 'Failed to create notification' },
-      { status: 500 }
-    )
-  }
-}
-
 // PATCH - Mark notifications as read
 export async function PATCH(req: NextRequest) {
   try {

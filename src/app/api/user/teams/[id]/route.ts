@@ -47,7 +47,14 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     include: teamInclude,
   })
   if (!team) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json({ team })
+  // People invited but not yet answered — shown under Members so leaders can
+  // see who is still pending and cancel an invite.
+  const pendingInvitations = await prisma.teamInvitation.findMany({
+    where: { teamId: params.id, status: 'PENDING' },
+    include: { user: { select: { id: true, name: true, email: true, image: true } } },
+    orderBy: { createdAt: 'asc' },
+  })
+  return NextResponse.json({ team, pendingInvitations })
 }
 
 // PATCH — only team leaders (any LEADER member) or admins. Renames team and mirrors name/color to its board.

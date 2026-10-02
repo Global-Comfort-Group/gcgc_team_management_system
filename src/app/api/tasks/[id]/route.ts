@@ -19,6 +19,7 @@ import { applyManualTicketNumber, TicketNumberError } from '@/lib/ticket-allocat
 import { resolveRoleAddressing, NO_PERMISSIONS } from '@/lib/board-roles'
 import { loadBoardRoleContext } from '@/lib/board-roles-server'
 import { userCanAccessBoard, userIsLeaderInBoard } from '@/lib/board-access'
+import { resolveReminderHours } from '@/lib/reminder-hours'
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).max(100).optional(),
@@ -59,7 +60,8 @@ const updateTaskSchema = z.object({
   // Gravity / SLA / reminders
   taskWeight: z.number().int().min(1).max(5).optional().nullable(),
   slaHours: z.number().int().min(1).optional().nullable(),
-  reminderDays: z.array(z.number().int().min(1)).optional(),
+  reminderHours: z.array(z.number().int().min(1)).optional(),
+  reminderDays: z.array(z.number().int().min(1)).optional(), // legacy: whole days
   // Per-board custom status (display column). Category still comes from `status`.
   customStatusId: z.string().nullable().optional(),
   // Per-board custom field values
@@ -750,6 +752,15 @@ export async function PATCH(
         dueDate: finalDueDate,
         startDate: finalStartDate,
       }
+
+      // Reminders are stored in hours. A changed due date or reminder list
+      // re-arms them, so the new schedule is sent from scratch.
+      const reminderHours = resolveReminderHours({ reminderHours: updateData.reminderHours, reminderDays: updateData.reminderDays })
+      delete taskUpdateData.reminderDays
+      delete taskUpdateData.reminderHours
+      if (reminderHours !== undefined) taskUpdateData.reminderHours = reminderHours
+      const dueDateChanged = finalDueDate !== undefined && existingTask.dueDate?.getTime() !== finalDueDate.getTime()
+      if (reminderHours !== undefined || dueDateChanged) taskUpdateData.remindersSentHours = []
 
       // Remove non-column fields from the task update data
       delete taskUpdateData.teamMemberIds

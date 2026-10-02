@@ -33,6 +33,7 @@ import {
   Star,
   Video,
   Download,
+  Upload,
   Archive,
   RotateCcw,
   ChevronDown,
@@ -98,6 +99,7 @@ import { BulkTaskActionsDialog } from '@/components/tasks/bulk-task-actions-dial
 import BoardSettingsDialog from '@/components/tasks/BoardSettingsDialog'
 import { getScheduleHealth } from '@/lib/schedule-health'
 import { taskMatchesSearch } from '@/lib/task-search'
+import { ImportTasksDialog } from '@/components/tasks/ImportTasksDialog'
 
 interface Task {
   id: string
@@ -501,6 +503,7 @@ export default function TasksPage() {
 
   // Board state
   const [boards, setBoards] = useState<KanbanBoard[]>([])
+  const [showImport, setShowImport] = useState(false)
   const [activeBoardId, setActiveBoardId] = useState<string | null>(() => searchParams.get('board') || null) // null = "All Tasks"
   const [showCreateBoard, setShowCreateBoard] = useState(false)
   const [boardPendingDelete, setBoardPendingDelete] = useState<KanbanBoard | null>(null)
@@ -1535,6 +1538,10 @@ export default function TasksPage() {
             <Archive className="h-4 w-4 mr-2" />
             Archive{tasks.filter(t => t.status === 'BACKLOG').length > 0 ? ` (${tasks.filter(t => t.status === 'BACKLOG').length})` : ''}
           </Button>
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setShowImport(true)} title="Create tasks from an Excel or CSV file">
+            <Upload className="h-4 w-4 mr-2" />
+            Import
+          </Button>
           <Button variant="outline" className="flex-1 sm:flex-none" onClick={handleExport} disabled={exporting} title="Export to Excel">
             <Download className="h-4 w-4 mr-2" />
             {exporting ? 'Exporting…' : 'Export'}
@@ -2106,6 +2113,14 @@ export default function TasksPage() {
           <span className="text-xs text-muted-foreground">Showing {tasks.length} of {totalTasks}</span>
         </div>
       )}
+
+      <ImportTasksDialog
+        open={showImport}
+        onOpenChange={setShowImport}
+        boards={boards.map(b => ({ id: b.id, name: b.name }))}
+        defaultBoardId={activeBoardId}
+        onImported={() => fetchTasks(false)}
+      />
 
       {/* Duplicate Field Selector Dialog */}
       {pendingDuplicateTask && (

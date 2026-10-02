@@ -9,6 +9,12 @@ const dev = process.env.NODE_ENV !== 'production'
 const hostname = 'localhost'
 const port = parseInt(process.env.PORT || '3000', 10)
 
+// Shared with /api/cron/reminders, which runs in this same process: lets the
+// reminder timer below call it without any external scheduler or env setting.
+if (!process.env.INTERNAL_CRON_SECRET) {
+  process.env.INTERNAL_CRON_SECRET = require('crypto').randomBytes(32).toString('hex')
+}
+
 const app = next({ dev, hostname, port })
 const handle = app.getRequestHandler()
 
@@ -181,5 +187,22 @@ app.prepare().then(async () => {
     .listen(port, () => {
       console.log(`> Ready on http://${hostname}:${port}`)
       console.log(`> WebSocket server running`)
+
+      // Task deadline reminders: every 15 minutes (first run after 1 minute).
+      // Nothing on the box calls the cron endpoints, so the app schedules this
+      // one itself. Errors are logged and retried on the next tick.
+      const runReminders = () => {
+        fetch(`http://localhost:${port}/api/cron/reminders`, {
+          headers: { 'x-cron-secret': process.env.INTERNAL_CRON_SECRET },
+        })
+          .then(async (r) => {
+            const body = await r.json().catch(() => ({}))
+            if (!r.ok) console.error('[reminders] run failed:', r.status, body.error || '')
+            else if (body.sent) console.log(`[reminders] sent ${body.sent}`)
+          })
+          .catch((e) => console.error('[reminders] run failed:', e.message))
+      }
+      setTimeout(runReminders, 60 * 1000)
+      setInterval(runReminders, 15 * 60 * 1000)
     })
 })

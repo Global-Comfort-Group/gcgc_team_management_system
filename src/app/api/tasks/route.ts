@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { hasPermission, canFinalizeTask } from '@/lib/permissions'
 import { leaderBoardIds } from '@/lib/board-access'
 import { ticketSearchConditions } from '@/lib/task-search'
+import { resolveReminderHours } from '@/lib/reminder-hours'
 import { PERMISSIONS } from '@/constants'
 import { autoSyncTask } from '@/lib/calendar-sync-helper'
 import { notifyTaskAssigned, notifySubtaskAssigned } from '@/lib/notifications'
@@ -62,7 +63,9 @@ const createTaskSchema = z.object({
   // Task gravity / SLA / reminders
   taskWeight: z.number().int().min(1).max(5).optional(),
   slaHours: z.number().int().min(1).optional().nullable(),
-  reminderDays: z.array(z.number().int().min(1)).optional().default([]),
+  // Hours before the due date (reminderDays = legacy whole days, converted).
+  reminderHours: z.array(z.number().int().min(1)).optional(),
+  reminderDays: z.array(z.number().int().min(1)).optional(),
   // Optional manual ticket number ("OPS-14"). Omitted => allocated automatically.
   ticketNumber: z.string().trim().max(24).optional().nullable(),
   // Address the task to a board role instead of naming a person.
@@ -477,7 +480,7 @@ export async function GET(req: NextRequest) {
               }
             }
           },
-          board: { select: { ownerId: true } },
+          board: { select: { ownerId: true, teamId: true } },
           fieldValues: {
             include: { field: { select: { id: true, name: true, type: true, options: true, position: true } } },
           },
@@ -552,7 +555,10 @@ export async function GET(req: NextRequest) {
       const isOwner = t.board ? t.board.ownerId === session.user.id : t.creatorId === session.user.id
       const viewerCanComplete = canFinalizeTask({
         isAdmin: viewerRole === 'ADMIN',
+        // A LEADER of the board's team leads its tasks whatever their account
+        // role — the same rule board roles already apply in GET/PATCH.
         isBoardLeader:
+          (!!t.board?.teamId && leaderTeamIds.has(t.board.teamId)) ||
           (viewerRole === 'LEADER' && !!t.teamId && leaderTeamIds.has(t.teamId)) ||
           (!!t.boardId && ledBoardIds.has(t.boardId)),
         isOwner,
@@ -631,6 +637,7 @@ export async function POST(req: NextRequest) {
       taskWeight,
       slaHours,
       reminderDays,
+      reminderHours,
       boardId,
       customStatusId,
       fieldValues,
@@ -754,7 +761,7 @@ export async function POST(req: NextRequest) {
             recurringEndDate: endDate,
             taskWeight: taskWeight || null,
             slaHours: slaHours || null,
-            reminderDays: reminderDays || [],
+            reminderHours: resolveReminderHours({ reminderHours, reminderDays }) ?? [],
           },
         })
         await setTaskAssignees(tx, templateTask.id, [assigneeId || session.user.id, ...teamMemberIds, ...collaboratorIds])
@@ -785,7 +792,7 @@ export async function POST(req: NextRequest) {
             recurringParentId: templateTask.id,
             taskWeight: taskWeight || null,
             slaHours: slaHours || null,
-            reminderDays: reminderDays || [],
+            reminderHours: resolveReminderHours({ reminderHours, reminderDays }) ?? [],
             boardId: link.boardId,
             customStatusId: link.boardId ? (customStatusId ?? null) : null,
           }
@@ -917,7 +924,7 @@ export async function POST(req: NextRequest) {
           // New fields
           taskWeight: taskWeight || null,
           slaHours: slaHours || null,
-          reminderDays: reminderDays || [],
+          reminderHours: resolveReminderHours({ reminderHours, reminderDays }) ?? [],
           boardId: link.boardId,
           customStatusId: link.boardId ? (customStatusId ?? null) : null,
         },

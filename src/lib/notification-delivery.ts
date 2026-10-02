@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { sendNotificationEmail } from '@/lib/email'
+import { sendNotificationEmail, EmailNotConfiguredError } from '@/lib/email'
 import { sendWebPush } from '@/lib/web-push'
 
 export function plannedDeliveries(prefs: { emailNotifications: boolean; pushNotifications: boolean }): ('email' | 'push')[] {
@@ -13,6 +13,8 @@ function entityUrl(n: { entityType?: string | null; entityId?: string | null }):
   const base = process.env.NEXTAUTH_URL || ''
   if (n.entityType === 'task' && n.entityId) return `${base}/user/tasks?task=${n.entityId}`
   if (n.entityType === 'board' && n.entityId) return `${base}/user/tasks?board=${n.entityId}`
+  if (n.entityType === 'team_invitation') return `${base}/user/teams`
+  if (n.entityType === 'team' && n.entityId) return `${base}/user/teams/${n.entityId}`
   return base ? `${base}/user/dashboard` : undefined
 }
 
@@ -29,7 +31,10 @@ export async function deliverNotification(
     const channels = plannedDeliveries(user)
     const url = entityUrl(n)
     if (channels.includes('email') && user.email) {
-      await sendNotificationEmail(user.email, { title: n.title, message: n.message, url }).catch(e => console.error('[deliver] email', e))
+      await sendNotificationEmail(user.email, { title: n.title, message: n.message, url }).catch(e => {
+        if (e instanceof EmailNotConfiguredError) console.info('[deliver] email skipped:', e.message)
+        else console.error('[deliver] email to', user.email, 'failed:', e?.message || e)
+      })
     }
     if (channels.includes('push')) {
       await Promise.all(user.pushSubscriptions.map(s =>

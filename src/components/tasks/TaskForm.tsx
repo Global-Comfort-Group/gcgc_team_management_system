@@ -37,6 +37,7 @@ import { splitDuplicatedChildren } from '@/lib/duplicate-prefill'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { generateOccurrenceDates } from '@/lib/recurring'
 import { useToast } from '@/hooks/use-toast'
+import { SlaInput, RemindersInput } from '@/components/tasks/LeadTimeInput'
 
 // Types
 type TaskType = 'INDIVIDUAL' | 'TEAM' | 'COLLABORATION' | 'CASCADING'
@@ -150,7 +151,7 @@ const taskFormSchema = z.object({
   // Weight, SLA, and reminder fields
   taskWeight: z.number().int().min(1).max(5).optional().nullable(),
   slaHours: z.number().int().min(1).optional().nullable(),
-  reminderDays: z.array(z.number().int().min(1)).optional().default([]),
+  reminderHours: z.array(z.number().int().min(1)).optional().default([]),
 })
 
 type TaskFormData = z.infer<typeof taskFormSchema>
@@ -264,7 +265,7 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
       // Weight, SLA, reminder
       taskWeight: null,
       slaHours: null,
-      reminderDays: [],
+      reminderHours: [],
     },
   })
 
@@ -367,6 +368,10 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
           recurringInterval: 1,
           recurringDaysOfWeek: [],
           recurringEndDate: null,
+          // Weight / SLA / reminders — were never loaded, so editing showed them blank
+          taskWeight: (task as any).taskWeight ?? null,
+          slaHours: (task as any).slaHours ?? null,
+          reminderHours: (task as any).reminderHours ?? [],
         })
 
         // Flat Assigned To display = union of assignee + team members + collaborators
@@ -421,6 +426,9 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
           recurringInterval: 1,
           recurringDaysOfWeek: [],
           recurringEndDate: null,
+          taskWeight: duplicateFrom.taskWeight ?? null,
+          slaHours: duplicateFrom.slaHours ?? null,
+          reminderHours: duplicateFrom.reminderHours ?? [],
         })
 
         const dupMemberUsers = new Map<string, any>()
@@ -2102,44 +2110,20 @@ export default function TaskForm({ open, onOpenChange, task, duplicateFrom, onSu
                     </div>
                   </div>
 
-                  {/* SLA Hours */}
+                  {/* SLA target — a number + hours/days (field reports 2026-10) */}
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium">SLA Target</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {[4, 8, 24, 48, 72, 168].map(h => (
-                        <button
-                          key={h}
-                          type="button"
-                          onClick={() => form.setValue('slaHours', form.watch('slaHours') === h ? null : h)}
-                          className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${form.watch('slaHours') === h ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-200 text-gray-600 hover:border-blue-300'}`}
-                        >
-                          {h < 24 ? `${h}h` : h === 168 ? '1 week' : `${h / 24}d`}
-                        </button>
-                      ))}
-                    </div>
+                    <Label htmlFor="sla-amount" className="text-sm font-medium">SLA Target</Label>
+                    <SlaInput id="sla-amount" value={form.watch('slaHours')} onChange={(h) => form.setValue('slaHours', h, { shouldDirty: true })} />
                   </div>
 
-                  {/* Reminder Days */}
+                  {/* Deadline reminders — "N hours/days before the due date" */}
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Deadline Reminders</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {[1, 3, 7, 14].map(d => {
-                        const selected = (form.watch('reminderDays') || []).includes(d)
-                        return (
-                          <button
-                            key={d}
-                            type="button"
-                            onClick={() => {
-                              const current = form.watch('reminderDays') || []
-                              form.setValue('reminderDays', selected ? current.filter(x => x !== d) : [...current, d])
-                            }}
-                            className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${selected ? 'bg-purple-600 border-purple-600 text-white' : 'border-gray-200 text-gray-600 hover:border-purple-300'}`}
-                          >
-                            {d === 1 ? '1 day before' : `${d} days before`}
-                          </button>
-                        )
-                      })}
-                    </div>
+                    <RemindersInput
+                      value={form.watch('reminderHours') || []}
+                      onChange={(h) => form.setValue('reminderHours', h, { shouldDirty: true })}
+                      hasDueDate={!!form.watch('dueDate')}
+                    />
                   </div>
 
                   <Separator />

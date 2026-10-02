@@ -59,7 +59,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'add-task',
         question: 'How do I add a task?',
         answer:
-          'On the Tasks page, click "New Task".\n- Board: choose which board the task goes on, or "No board". It starts on the board you have open.\n- Template (optional): pick one of the board\'s templates to pre-fill the form, or leave it on None.\n- Enter a title and a deadline (required), plus any description, priority or attachments.\n- Under Assigned To, pick People or a Role (see "Assigning Work").\n- Click "Create Task".\n\nEvery task gets a ticket number (for example OPS-14) that you can quote to find it later. If something is missing or wrong, a message pops up and the form scrolls to the field that needs fixing — nothing you typed is lost.',
+          'On the Tasks page, click "New Task".\n- Board: choose which board the task goes on, or "No board". It starts on the board you have open.\n- Template (optional): pick one of the board\'s templates to pre-fill the form, or leave it on None.\n- Enter a title and a deadline (required), plus any description, priority or attachments.\n- Under Assigned To, pick People or a Role (see "Assigning Work").\n- Click "Create Task".\n\nUnder "More options" you can set an SLA target and deadline reminders: type a number and choose hours or days (for example 2 days before the due date). Assignees get a notification and an email at each reminder.\n\nEvery task gets a ticket number (for example OPS-14) that you can quote to find it later. If something is missing or wrong, a message pops up and the form scrolls to the field that needs fixing — nothing you typed is lost.',
         keywords: ['create task', 'new task', 'add card', 'board', 'ticket', 'id'],
       },
       {
@@ -94,8 +94,8 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'export',
         question: 'Can I export tasks to Excel?',
         answer:
-          'Yes. On the Tasks page click "Export". You get an .xlsx of the board you have open (or All Tasks), with your current filters applied.',
-        keywords: ['excel', 'xlsx', 'download', 'report', 'export'],
+          'Yes. On the Tasks page click "Export". You get an .xlsx of the board you have open (or All Tasks), with your current filters applied.\n\nTo create tasks from a spreadsheet, click "Import", choose the board, and upload an .xlsx or .csv with the same columns as the export (or download the "Template"). Title and Due Date are required. You see a preview of every row, with anything that needs fixing, before any task is created. Ticket, Board and Created are ignored: every row becomes a new task.',
+        keywords: ['excel', 'xlsx', 'csv', 'download', 'report', 'export', 'import', 'upload', 'bulk create'],
       },
     ],
   },
@@ -188,8 +188,8 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'create-team',
         question: 'How do I create a team?',
         answer:
-          'Go to Teams and click "New Team". Each team gets its own task board.\n- Add members and set each one as Leader or Member.\n\nAnyone added to a team board also appears under that board\'s leaders in Team Overview.',
-        keywords: ['new team', 'add team', 'members', 'team overview'],
+          'Go to Teams and click "New Team". Each team gets its own task board.\n- Click "Invite member" to invite people, and set each one as Leader or Member.\n\nAn invited person gets a notification and an email, and joins only after clicking Accept (on their Dashboard, Teams or Notifications page). Until then they are listed as "Invited — waiting", where a leader can cancel the invite. Members also appear under the board\'s leaders in Team Overview.',
+        keywords: ['new team', 'add team', 'members', 'invite', 'invitation', 'accept', 'decline', 'team overview'],
       },
       {
         id: 'create-board',
@@ -242,7 +242,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'notifications',
         question: 'How do I get notified?',
         answer:
-          'The bell in the sidebar lists your notifications. Under Profile → Notifications you can:\n- Turn email notifications on or off.\n- Enable browser push notifications, then use "Send test" to check they arrive.',
+          'The bell in the sidebar lists your notifications. Under Profile → Notifications you can:\n- Turn email notifications on or off, and use its "Send test" to check emails arrive. Every notification in the app is also emailed while this is on.\n- Enable browser push notifications, then use "Send test" to check they arrive.',
         keywords: ['notification', 'push', 'email', 'bell', 'alerts'],
       },
       {

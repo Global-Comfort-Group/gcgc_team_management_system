@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import type { Team } from '@/types/team'
+import { PendingInvitations } from '@/components/teams/PendingInvitations'
 
 const COLOR_CHOICES = ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#14B8A6', '#6366F1']
 
@@ -97,6 +98,7 @@ export default function TeamsPage() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
+      <PendingInvitations onAnswered={(accepted) => { if (accepted) fetchTeams() }} />
       {/* Header — refined hero (matches dashboard) */}
       <div
         className="relative overflow-hidden rounded-2xl border border-slate-200/70 shadow-sm mb-6 motion-safe:animate-slide-up"

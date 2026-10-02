@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatDistanceToNow } from 'date-fns'
 import { UserAvatar } from '@/components/shared/UserAvatar'
+import { PendingInvitations } from '@/components/teams/PendingInvitations'
 
 type Notif = { id: string; title: string; message: string; isRead: boolean; entityType?: string | null; entityId?: string | null; createdAt: string }
 type Act = { id: string; description: string; createdAt: string; entityType?: string | null; entityId?: string | null; user: { id: string; name: string; email: string; image?: string } }
@@ -40,6 +41,8 @@ export default function NotificationsPage() {
 
   function openNotif(n: Notif) {
     if (n.entityType === 'task' && n.entityId) router.push(`/user/tasks?taskId=${n.entityId}`)
+    else if (n.entityType === 'team_invitation') router.push('/user/teams')
+    else if (n.entityType === 'team' && n.entityId) router.push(`/user/teams/${n.entityId}`)
   }
 
   return (
@@ -55,6 +58,8 @@ export default function NotificationsPage() {
           </div>
         )}
       </div>
+
+      <PendingInvitations />
 
       <div className="flex gap-1 border-b mb-3">
         {(['inbox', 'activity'] as const).map(t => (

@@ -21,6 +21,8 @@ import { useToast } from '@/hooks/use-toast'
 import { ConfirmDeleteDialog } from '@/components/shared/ConfirmDeleteDialog'
 import type { Team, SelectableUser } from '@/types/team'
 
+type PendingInvite = { id: string; userId: string; role: 'LEADER' | 'MEMBER'; createdAt: string; user: { id: string; name?: string | null; email: string; image?: string | null } }
+
 export default function TeamDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { data: session } = useSession()
@@ -28,6 +30,7 @@ export default function TeamDetailPage() {
   const router = useRouter()
 
   const [team, setTeam] = useState<Team | null>(null)
+  const [pending, setPending] = useState<PendingInvite[]>([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
 
@@ -52,6 +55,7 @@ export default function TeamDetailPage() {
       if (res.ok) {
         const data = await res.json()
         setTeam(data.team)
+        setPending(data.pendingInvitations || [])
       }
     } catch (e) {
       console.error('Error fetching team:', e)
@@ -139,11 +143,26 @@ export default function TeamDetailPage() {
       })
       if (res.ok) {
         await fetchTeam()
-        toast({ title: 'Member added' })
+        toast({ title: 'Invitation sent', description: 'They join the team once they accept.' })
       } else {
         const err = await res.json().catch(() => ({}))
-        toast({ title: 'Could not add member', description: err.error, variant: 'destructive' })
+        toast({ title: 'Could not send the invitation', description: err.error, variant: 'destructive' })
       }
+    } finally {
+      setBusyUserId(null)
+    }
+  }
+
+  const cancelInvite = async (inv: PendingInvite) => {
+    if (!team) return
+    setBusyUserId(inv.userId)
+    try {
+      const res = await fetch(`/api/user/teams/${team.id}/invitations/${inv.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        toast({ title: 'Could not cancel the invitation', description: err.error, variant: 'destructive' })
+      }
+      await fetchTeam()
     } finally {
       setBusyUserId(null)
     }
@@ -254,7 +273,7 @@ export default function TeamDetailPage() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-semibold flex items-center gap-2"><Users className="h-4 w-4" /> Members ({team.members.length})</h2>
           {canManage && (
-            <Button size="sm" variant="outline" onClick={openAddDialog}><UserPlus className="h-4 w-4 mr-2" /> Add member</Button>
+            <Button size="sm" variant="outline" onClick={openAddDialog}><UserPlus className="h-4 w-4 mr-2" /> Invite member</Button>
           )}
         </div>
         <ul className="divide-y">
@@ -295,6 +314,31 @@ export default function TeamDetailPage() {
             )
           })}
         </ul>
+        {pending.length > 0 && (
+          <div className="mt-4 border-t pt-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Invited — waiting for an answer ({pending.length})</h3>
+            <ul className="divide-y">
+              {pending.map(inv => (
+                <li key={inv.id} className="flex items-center gap-3 py-2.5">
+                  <Avatar className="h-8 w-8 opacity-70">
+                    <AvatarImage src={inv.user.image || undefined} />
+                    <AvatarFallback>{(inv.user.name || inv.user.email)[0]?.toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate text-slate-600">{inv.user.name || inv.user.email}</p>
+                    <p className="text-xs text-muted-foreground truncate">{inv.user.email}</p>
+                  </div>
+                  <Badge variant="outline" className="text-[10px]">Pending</Badge>
+                  {canManage && (
+                    <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700" disabled={busyUserId === inv.userId} onClick={() => cancelInvite(inv)} title="Cancel invitation">
+                      {busyUserId === inv.userId ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       <Dialog open={showRename} onOpenChange={setShowRename}>
@@ -346,8 +390,8 @@ export default function TeamDetailPage() {
       <Dialog open={showAdd} onOpenChange={setShowAdd}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add a member</DialogTitle>
-            <DialogDescription>Add an existing user to this team. They keep their own profile — you only set their team role.</DialogDescription>
+            <DialogTitle>Invite a member</DialogTitle>
+            <DialogDescription>Invite an existing user to this team. They get a notification and an email, and join only once they accept.</DialogDescription>
           </DialogHeader>
           <div className="py-2">
             <div className="relative mb-3">
@@ -355,7 +399,7 @@ export default function TeamDetailPage() {
               <Input className="pl-9" placeholder="Search by name or email…" value={userQuery} onChange={e => setUserQuery(e.target.value)} />
             </div>
             {(() => {
-              const available = allUsers.filter(u => !team.members.some(m => m.userId === u.id))
+              const available = allUsers.filter(u => !team.members.some(m => m.userId === u.id) && !pending.some(p => p.userId === u.id))
               const q = userQuery.trim().toLowerCase()
               const matches = available.filter(u =>
                 !q || (u.name || '').toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
@@ -384,7 +428,7 @@ export default function TeamDetailPage() {
                     </li>
                   ))}
                   {available.length === 0 && (
-                    <li className="py-6 text-center text-sm text-muted-foreground">No users available to add.</li>
+                    <li className="py-6 text-center text-sm text-muted-foreground">No users available to invite.</li>
                   )}
                   {available.length > 0 && matches.length === 0 && (
                     <li className="py-6 text-center text-sm text-muted-foreground">No users match &quot;{userQuery}&quot;.</li>

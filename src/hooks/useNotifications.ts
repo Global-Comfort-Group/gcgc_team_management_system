@@ -7,7 +7,7 @@ import { io, Socket } from 'socket.io-client'
 interface Notification {
   id: string
   userId: string
-  type: 'TASK_ASSIGNED' | 'TASK_UPDATED' | 'TASK_COMPLETED' | 'COMMENT_ADDED' | 'MENTION' | 'DEADLINE_REMINDER'
+  type: 'TASK_ASSIGNED' | 'TASK_UPDATED' | 'TASK_COMPLETED' | 'COMMENT_ADDED' | 'MENTION' | 'DEADLINE_REMINDER' | 'TEAM_INVITATION' | 'BOARD_MEMBER_ADDED' | 'TASK_SUBMITTED_FOR_REVIEW'
   title: string
   message: string
   isRead: boolean
