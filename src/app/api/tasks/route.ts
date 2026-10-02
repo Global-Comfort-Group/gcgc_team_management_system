@@ -477,7 +477,7 @@ export async function GET(req: NextRequest) {
               }
             }
           },
-          board: { select: { ownerId: true } },
+          board: { select: { ownerId: true, teamId: true } },
           fieldValues: {
             include: { field: { select: { id: true, name: true, type: true, options: true, position: true } } },
           },
@@ -552,7 +552,10 @@ export async function GET(req: NextRequest) {
       const isOwner = t.board ? t.board.ownerId === session.user.id : t.creatorId === session.user.id
       const viewerCanComplete = canFinalizeTask({
         isAdmin: viewerRole === 'ADMIN',
+        // A LEADER of the board's team leads its tasks whatever their account
+        // role — the same rule board roles already apply in GET/PATCH.
         isBoardLeader:
+          (!!t.board?.teamId && leaderTeamIds.has(t.board.teamId)) ||
           (viewerRole === 'LEADER' && !!t.teamId && leaderTeamIds.has(t.teamId)) ||
           (!!t.boardId && ledBoardIds.has(t.boardId)),
         isOwner,
