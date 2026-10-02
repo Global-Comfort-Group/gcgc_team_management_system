@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client'
 import { createNotification } from '@/lib/notifications'
 import { CLOSED_TASK_STATUSES } from '@/lib/task-scope'
+import { APP_TIMEZONE } from '@/lib/app-timezone'
 
 const HOUR = 60 * 60 * 1000
 
@@ -78,7 +79,7 @@ export async function sendDueReminders(db: PrismaClient, now = new Date()): Prom
         userId,
         type: 'DEADLINE_REMINDER',
         title: 'Task due soon',
-        message: `"${task.title}" is due in ${formatLeadTime(plan.send)} (${task.dueDate!.toLocaleString('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' })}).`,
+        message: `"${task.title}" is due in ${formatLeadTime(plan.send)} (${task.dueDate!.toLocaleString('en-PH', { timeZone: APP_TIMEZONE, dateStyle: 'medium', timeStyle: 'short' })}).`,
         entityId: task.id,
         entityType: 'task',
       }).catch((e) => console.error('[reminders] notify failed', task.id, e))
