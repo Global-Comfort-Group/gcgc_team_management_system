@@ -69,9 +69,8 @@ export function NotificationSettings() {
       <div className="flex items-center justify-between text-sm">
         <label htmlFor="email-notifications">Email notifications</label>
         <div className="flex items-center gap-2">
-          {emailOn && (
-            <button onClick={sendTestEmail} disabled={emailBusy} className={btn}>{emailBusy ? '…' : 'Send test'}</button>
-          )}
+          {/* Always shown: hiding it while email was off made it impossible to find. */}
+          <button onClick={sendTestEmail} disabled={emailBusy} className={btn} title="Send a test email to your address">{emailBusy ? '…' : 'Send test'}</button>
           <input id="email-notifications" type="checkbox" checked={emailOn} onChange={(e) => setEmail(e.target.checked)} className="h-4 w-4 accent-blue-600" />
         </div>
       </div>
