@@ -33,6 +33,9 @@ export interface ImportTask {
   /** "YYYY-MM-DD" — the client turns it into local midnight, like the form. */
   startDate?: string
   dueDate: string
+  /** Filled in by the route: the dates as instants in the app timezone. */
+  startDateIso?: string
+  dueDateIso?: string
   progressPercentage?: number
   assigneeIds: string[]
   fieldValues: { fieldId: string; value: string }[]

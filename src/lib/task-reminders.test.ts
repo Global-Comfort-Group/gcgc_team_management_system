@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planReminder, formatLeadTime } from './task-reminders'
+import { planReminder, describeTimeLeft } from './task-reminders'
 
 const now = new Date('2026-10-02T08:00:00Z')
 const inHours = (h: number) => new Date(now.getTime() + h * 3600_000)
@@ -29,11 +29,11 @@ describe('planReminder', () => {
   })
 })
 
-describe('formatLeadTime', () => {
-  it('uses days when the hours divide evenly', () => {
-    expect(formatLeadTime(24)).toBe('1 day')
-    expect(formatLeadTime(72)).toBe('3 days')
-    expect(formatLeadTime(1)).toBe('1 hour')
-    expect(formatLeadTime(36)).toBe('36 hours')
+describe('describeTimeLeft', () => {
+  it('reports the real time left, not the reminder threshold', () => {
+    expect(describeTimeLeft(70 * 60_000)).toBe('about 1 hour')
+    expect(describeTimeLeft(20 * 60_000)).toBe('less than an hour')
+    expect(describeTimeLeft(26 * 3600_000)).toBe('about 26 hours')
+    expect(describeTimeLeft(72 * 3600_000)).toBe('about 3 days')
   })
 })

@@ -11,12 +11,6 @@ import type { ImportPreview, ImportRow, ImportTask } from '@/lib/task-import'
 type Board = { id: string; name: string }
 type Result = { row: number; title: string; ok: boolean; error?: string }
 
-/** "YYYY-MM-DD" → local midnight, the same instant the date picker produces. */
-const localMidnightIso = (ymd: string) => {
-  const [y, m, d] = ymd.split('-').map(Number)
-  return new Date(y, m - 1, d).toISOString()
-}
-
 /** One parsed row → the body New Task sends (same people mapping as TaskForm). */
 function toCreateBody(t: ImportTask, boardId: string) {
   const [first, ...rest] = t.assigneeIds
@@ -26,8 +20,9 @@ function toCreateBody(t: ImportTask, boardId: string) {
     priority: t.priority,
     status: t.status,
     customStatusId: t.customStatusId,
-    startDate: t.startDate ? localMidnightIso(t.startDate) : undefined,
-    dueDate: localMidnightIso(t.dueDate),
+    // Resolved server-side in the app timezone (see /api/tasks/import).
+    startDate: t.startDateIso,
+    dueDate: t.dueDateIso,
     allDay: true,
     progressPercentage: t.progressPercentage,
     taskType: t.assigneeIds.length > 1 ? 'TEAM' : 'INDIVIDUAL',
@@ -58,10 +53,15 @@ export function ImportTasksDialog({
   const [done, setDone] = useState(0)
   const [results, setResults] = useState<Result[] | null>(null)
 
+  // Reset only when the dialog OPENS. Depending on `boards` here wiped the
+  // preview on every background refresh of the page (a new array each render).
+  const wasOpen = useRef(false)
   useEffect(() => {
-    if (!open) return
-    setBoardId(defaultBoardId && boards.some((b) => b.id === defaultBoardId) ? defaultBoardId : '')
-    setFile(null); setPreview(null); setResults(null); setDone(0)
+    if (open && !wasOpen.current) {
+      setBoardId(defaultBoardId && boards.some((b) => b.id === defaultBoardId) ? defaultBoardId : '')
+      setFile(null); setPreview(null); setResults(null); setDone(0)
+    }
+    wasOpen.current = open
   }, [open, defaultBoardId, boards])
 
   const read = async (f: File, board: string) => {

@@ -11,3 +11,11 @@ describe('ymdInAppTz', () => {
     expect(ymdInAppTz('nope')).toBe('')
   })
 })
+
+import { appTzMidnightIso } from './app-timezone'
+describe('appTzMidnightIso', () => {
+  it('is midnight in Manila, and round-trips through ymdInAppTz', () => {
+    expect(appTzMidnightIso('2026-10-10')).toBe('2026-10-09T16:00:00.000Z')
+    expect(ymdInAppTz(appTzMidnightIso('2026-01-01'))).toBe('2026-01-01')
+  })
+})

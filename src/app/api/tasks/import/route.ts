@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestSession } from '@/lib/api-auth'
 import { parseTaskRows } from '@/lib/task-import'
+import { appTzMidnightIso } from '@/lib/app-timezone'
 import { canImportToBoard, loadImportContext, readSheet, MAX_IMPORT_BYTES } from '@/lib/task-import-server'
 
 export const dynamic = 'force-dynamic'
@@ -29,6 +30,13 @@ export async function POST(req: NextRequest) {
     const { header, rows } = await readSheet(Buffer.from(await file.arrayBuffer()), file.name)
     const ctx = await loadImportContext(boardId)
     const preview = parseTaskRows(header, rows, ctx)
+    // Resolve dates here, in the app timezone, so the result doesn't depend on
+    // the timezone of the browser doing the import.
+    for (const r of preview.rows) {
+      if (!r.task) continue
+      r.task.dueDateIso = appTzMidnightIso(r.task.dueDate)
+      if (r.task.startDate) r.task.startDateIso = appTzMidnightIso(r.task.startDate)
+    }
     return NextResponse.json({ boardName: ctx.boardName, ...preview })
   } catch (e) {
     console.error('Task import parse error:', e)

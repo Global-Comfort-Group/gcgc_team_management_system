@@ -28,13 +28,20 @@ export function planReminder(
   return { send: passed[0], markSent: passed }
 }
 
-/** "3 hours", "1 day", "2 days" — whole days when it divides evenly. */
-export function formatLeadTime(hours: number): string {
-  if (hours % 24 === 0) {
-    const d = hours / 24
-    return `${d} day${d === 1 ? '' : 's'}`
+/**
+ * How long until the due date, for the message. The threshold that triggered
+ * the reminder (say 2 hours) can be well above the real time left — a task
+ * created 70 minutes before it's due — so this reports the real time.
+ */
+export function describeTimeLeft(ms: number): string {
+  const hours = ms / HOUR
+  if (hours < 1) return 'less than an hour'
+  if (hours < 48) {
+    const h = Math.round(hours)
+    return `about ${h} hour${h === 1 ? '' : 's'}`
   }
-  return `${hours} hour${hours === 1 ? '' : 's'}`
+  const d = Math.round(hours / 24)
+  return `about ${d} days`
 }
 
 /**
@@ -79,7 +86,7 @@ export async function sendDueReminders(db: PrismaClient, now = new Date()): Prom
         userId,
         type: 'DEADLINE_REMINDER',
         title: 'Task due soon',
-        message: `"${task.title}" is due in ${formatLeadTime(plan.send)} (${task.dueDate!.toLocaleString('en-PH', { timeZone: APP_TIMEZONE, dateStyle: 'medium', timeStyle: 'short' })}).`,
+        message: `"${task.title}" is due in ${describeTimeLeft(task.dueDate!.getTime() - now.getTime())} (${task.dueDate!.toLocaleString('en-PH', { timeZone: APP_TIMEZONE, dateStyle: 'medium', timeStyle: 'short' })}).`,
         entityId: task.id,
         entityType: 'task',
       }).catch((e) => console.error('[reminders] notify failed', task.id, e))
