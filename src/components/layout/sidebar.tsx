@@ -225,7 +225,11 @@ export function Sidebar({ className }: SidebarProps) {
 
   const isAdmin = session.user.role === 'ADMIN'
   const isLeader = session.user.role === 'LEADER'
-  const navItems = isAdmin ? adminNavItems : (isLeader ? leaderNavItems : userNavItems)
+  // TMS Chat is hidden for now (field reports 2026-10). Set
+  // NEXT_PUBLIC_SHOW_TMS_CHAT=true at build time to bring the link back.
+  const showTmsChat = process.env.NEXT_PUBLIC_SHOW_TMS_CHAT === 'true'
+  const navItems = (isAdmin ? adminNavItems : (isLeader ? leaderNavItems : userNavItems))
+    .filter(item => showTmsChat || item.title !== 'TMS Chat')
   const portalName = isAdmin ? 'Admin Portal' : 'User Portal'
 
   const handleSignOut = () => {
