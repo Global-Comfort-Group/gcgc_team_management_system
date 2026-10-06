@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { sendNotificationEmail, EmailNotConfiguredError } from '@/lib/email'
 import { sendWebPush } from '@/lib/web-push'
+import { appUrl } from '@/lib/app-url'
 
 export function plannedDeliveries(prefs: { emailNotifications: boolean; pushNotifications: boolean }): ('email' | 'push')[] {
   const out: ('email' | 'push')[] = []
@@ -9,13 +10,14 @@ export function plannedDeliveries(prefs: { emailNotifications: boolean; pushNoti
   return out
 }
 
-function entityUrl(n: { entityType?: string | null; entityId?: string | null }): string | undefined {
-  const base = process.env.NEXTAUTH_URL || ''
-  if (n.entityType === 'task' && n.entityId) return `${base}/user/tasks?task=${n.entityId}`
+export function entityUrl(n: { entityType?: string | null; entityId?: string | null }): string | undefined {
+  const base = appUrl()
+  // The Tasks page opens a task from ?taskId= (it was ?task=, which opened nothing).
+  if (n.entityType === 'task' && n.entityId) return `${base}/user/tasks?taskId=${n.entityId}`
   if (n.entityType === 'board' && n.entityId) return `${base}/user/tasks?board=${n.entityId}`
   if (n.entityType === 'team_invitation') return `${base}/user/teams`
   if (n.entityType === 'team' && n.entityId) return `${base}/user/teams/${n.entityId}`
-  return base ? `${base}/user/dashboard` : undefined
+  return `${base}/user/dashboard`
 }
 
 export async function deliverNotification(

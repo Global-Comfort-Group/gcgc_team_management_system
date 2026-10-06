@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRequestSession } from '@/lib/api-auth'
 import { prisma } from '@/lib/prisma'
 import { sendNotificationEmail, EmailNotConfiguredError } from '@/lib/email'
+import { appLink } from '@/lib/app-url'
 
 export async function POST(req: NextRequest) {
   const session = await getRequestSession(req)
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
     await sendNotificationEmail(user.email, {
       title: 'Test email',
       message: 'Email notifications are working. You will get an email like this for each notification in the app.',
-      url: process.env.NEXTAUTH_URL ? `${process.env.NEXTAUTH_URL}/user/notifications` : undefined,
+      url: appLink('/user/notifications'),
     })
     return NextResponse.json({ sentTo: user.email })
   } catch (e: any) {

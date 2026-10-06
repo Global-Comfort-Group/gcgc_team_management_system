@@ -29,6 +29,7 @@ import { UserAvatar } from '@/components/shared/UserAvatar'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
 import { format, formatDistanceToNow } from 'date-fns'
+import { commentTimeLabel, commentTimeFull } from '@/lib/comment-time'
 import {
   User, Users, Handshake, Clock, MessageSquare, Send, Edit, Copy,
   Heart, ThumbsUp, Smile, Reply, Image, Paperclip, MoreHorizontal,
@@ -1573,7 +1574,7 @@ export default function TaskViewModal({
             className="h-8 w-8 flex-shrink-0"
             fallbackClassName="text-sm"
           />
-          <div className="flex-1 space-y-2">
+          <div className="flex-1 min-w-0 space-y-2">
             {isEditing ? (
               /* Edit Mode UI */
               <div className="bg-blue-50 rounded-lg p-3 space-y-3">
@@ -1689,14 +1690,20 @@ export default function TaskViewModal({
             ) : (
               /* Normal View Mode */
               <div className="bg-gray-50 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  {/* min-w-0 + truncate: a long name (often an email) used to
+                      crush the timestamp into a one-word-per-line column. */}
+                  <div className="flex items-baseline gap-2 min-w-0">
+                    <span className="font-medium text-sm truncate" title={comment.author.email}>
                       {comment.author.name || comment.author.email}
                     </span>
-                    <span className="text-xs text-gray-500">
-                      {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })}
-                    </span>
+                    <time
+                      dateTime={new Date(comment.createdAt).toISOString()}
+                      title={commentTimeFull(comment.createdAt)}
+                      className="text-xs text-gray-500 whitespace-nowrap shrink-0"
+                    >
+                      {commentTimeLabel(comment.createdAt)}
+                    </time>
                   </div>
 
                   {/* Edit/Delete Menu */}
@@ -1747,8 +1754,9 @@ export default function TaskViewModal({
                       <img
                         src={effectiveUrl}
                         alt="Comment attachment"
-                        className="mt-2 max-w-xs rounded-lg border cursor-pointer hover:opacity-90"
+                        className="mt-2 block max-h-64 max-w-full w-auto object-contain rounded-lg border cursor-zoom-in hover:opacity-90"
                         onClick={() => setPreviewImage(effectiveUrl)}
+                        title="Click to view full size"
                       />
                     )
                   }
@@ -3439,10 +3447,13 @@ export default function TaskViewModal({
               {pendingFile && (
                 <div className="relative inline-block">
                   {isImageFile(pendingFile.fileType) ? (
+                    // Height-capped thumbnail: a portrait photo at full width
+                    // was taller than the comments column and pushed the
+                    // textbox, Attach and Post out of view.
                     <img
                       src={pendingFile.fileUrl}
                       alt="Pending attachment"
-                      className="max-w-xs rounded-lg border"
+                      className="block max-h-28 max-w-[12rem] w-auto object-contain rounded-lg border bg-gray-50"
                     />
                   ) : (
                     <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg border">

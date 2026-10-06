@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
+import { appUrl } from '@/lib/app-url'
 
 /**
  * OpenAPI 3.1 spec for the public task API. Public (no auth) — contains no user
  * data. Agents/LLM tool frameworks import this to auto-generate the tool.
  */
 export async function GET() {
-  const server = process.env.NEXTAUTH_URL?.replace(/\/$/, '') ?? ''
+  const server = appUrl()
 
   const spec = {
     openapi: '3.1.0',
