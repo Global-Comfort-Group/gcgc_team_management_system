@@ -1,7 +1,8 @@
+import { appUrl } from '@/lib/app-url'
 import { MetadataRoute } from 'next'
 
 export default function robots(): MetadataRoute.Robots {
-  const baseUrl = process.env.NEXTAUTH_URL || 'https://tms.hotelsogo-ai.com'
+  const baseUrl = appUrl()
 
   return {
     rules: [

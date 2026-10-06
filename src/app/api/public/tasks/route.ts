@@ -1,3 +1,4 @@
+import { appUrl as publicAppUrl } from '@/lib/app-url'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { allocateTicketNumber } from '@/lib/ticket-allocate'
@@ -151,7 +152,7 @@ export async function POST(req: NextRequest) {
     })
     .catch(() => {})
 
-  const appUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, '') ?? ''
+  const appUrl = publicAppUrl()
   return NextResponse.json(
     {
       id: created.task.id,
