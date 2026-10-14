@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { deleteFromOSS } from '@/lib/oss'
+import { deleteFile } from '@/lib/storage'
 import { z } from 'zod'
 
 const updateProcurementSchema = z.object({
@@ -77,7 +77,7 @@ export async function DELETE(
     }
 
     if (procurement.objectKey) {
-      await deleteFromOSS(procurement.objectKey)
+      await deleteFile(procurement.objectKey)
     }
 
     await prisma.taskProcurement.delete({ where: { id: params.procId } })

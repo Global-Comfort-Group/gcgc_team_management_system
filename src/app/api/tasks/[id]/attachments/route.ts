@@ -4,9 +4,10 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { canViewTask } from '@/lib/task-access'
+import { isFileLink } from '@/lib/storage'
 
 const addAttachmentSchema = z.object({
-  fileUrl: z.string().url(),
+  fileUrl: z.string().refine(isFileLink, 'Invalid file link'),
   fileName: z.string().min(1).max(255),
   fileType: z.string().optional().nullable(),
   fileSize: z.number().int().nonnegative().optional().nullable(),

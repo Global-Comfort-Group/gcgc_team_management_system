@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { uploadToOSS } from '@/lib/oss'
+import { saveFile, safeExtension } from '@/lib/storage'
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
@@ -41,13 +41,13 @@ export async function POST(req: NextRequest) {
 
     // Generate unique filename for OSS
     const timestamp = Date.now()
-    const extension = file.name.split('.').pop()
+    const extension = safeExtension(file.name)
     const objectKey = `comments/${taskId}/${timestamp}-${session.user.id}.${extension}`
 
-    // Upload to OSS
+    // Store it (local disk or OSS, per STORAGE_BACKEND); imageUrl is the permanent /api/files link
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
-    const { url: imageUrl } = await uploadToOSS(buffer, objectKey, file.type)
+    const { url: imageUrl } = await saveFile(objectKey, buffer, file.type)
 
     return NextResponse.json({
       imageUrl,

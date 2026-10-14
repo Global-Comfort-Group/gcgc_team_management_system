@@ -204,5 +204,19 @@ app.prepare().then(async () => {
       }
       setTimeout(runReminders, 60 * 1000)
       setInterval(runReminders, 15 * 60 * 1000)
+
+      // Copy any file still only in the old OSS bucket onto local storage. Runs in
+      // the background so startup is not held up; until a file is copied,
+      // /api/files falls back to a signed bucket link. Skips itself unless
+      // STORAGE_BACKEND is local and OSS settings exist. Once everything is here,
+      // each start costs one bucket listing. Production only: a developer whose
+      // .env holds the OSS keys must not pull the whole bucket on `npm run dev`.
+      if (!dev) {
+        setTimeout(() => {
+          require('./scripts/sync-oss-to-local')
+            .run()
+            .catch((e) => console.error('[storage-sync] failed:', e.code || '', e.message))
+        }, 5 * 1000)
+      }
     })
 })

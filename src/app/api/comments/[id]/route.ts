@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
-import { deleteFromOSS, getObjectKeyFromUrl } from '@/lib/oss'
+import { deleteFile, keyFromLink } from '@/lib/storage'
 
 const updateCommentSchema = z.object({
   content: z.string().min(1).max(500, 'Comment must be 500 characters or fewer').optional(),
@@ -90,20 +90,20 @@ export async function PATCH(
     const body = await req.json()
     const validatedData = updateCommentSchema.parse(body)
 
-    // Helper function to cleanup old file from OSS
+    // Helper function to clean up an old stored file
     const cleanupOldFile = async (oldUrl: string | null, newUrl: string | null | undefined) => {
       if (oldUrl && newUrl !== undefined) {
         // If file is being removed (null) or changed to a different URL
         if (newUrl === null || (newUrl && newUrl !== oldUrl)) {
-          const objectKey = getObjectKeyFromUrl(oldUrl)
+          const objectKey = keyFromLink(oldUrl)
           if (objectKey) {
-            await deleteFromOSS(objectKey)
+            await deleteFile(objectKey)
           }
         }
       }
     }
 
-    // Cleanup old files from OSS if being changed/removed
+    // Clean up old files if being changed/removed
     await cleanupOldFile(existingComment.imageUrl, validatedData.imageUrl)
     await cleanupOldFile(existingComment.fileUrl, validatedData.fileUrl)
 
@@ -189,12 +189,12 @@ export async function DELETE(
       return NextResponse.json({ error: 'You do not have permission to delete this comment' }, { status: 403 })
     }
 
-    // Delete files from OSS if they exist
+    // Delete stored files if they exist
     const filesToDelete = [existingComment.imageUrl, existingComment.fileUrl].filter(Boolean) as string[]
     for (const fileUrl of filesToDelete) {
-      const objectKey = getObjectKeyFromUrl(fileUrl)
+      const objectKey = keyFromLink(fileUrl)
       if (objectKey) {
-        await deleteFromOSS(objectKey)
+        await deleteFile(objectKey)
       }
     }
 

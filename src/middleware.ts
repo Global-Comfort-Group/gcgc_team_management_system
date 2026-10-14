@@ -44,6 +44,13 @@ async function adminMiddleware(req: NextRequest) {
 export default async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
+  // Stored files live in public/uploads/files (the persistent uploads mount), which
+  // Next would otherwise serve to anyone with the address. They are only reachable
+  // through /api/files/<key>, which checks the session and task access.
+  if (pathname.startsWith('/uploads/files/') || pathname === '/uploads/files') {
+    return new NextResponse('Not found', { status: 404 })
+  }
+
   // Handle CORS preflight requests (OPTIONS) for API v1 routes
   if (req.method === 'OPTIONS' && pathname.startsWith('/api/v1')) {
     const corsHeaders = getCorsHeaders(req)
@@ -194,5 +201,7 @@ export const config = {
      * - uploads (user uploaded files like profile images)
      */
     '/((?!_next/static|_next/image|favicon.ico|public/|uploads/).*)',
+    // ...except stored files, which the first pattern would skip: blocked above.
+    '/uploads/files/:path*',
   ],
 }
