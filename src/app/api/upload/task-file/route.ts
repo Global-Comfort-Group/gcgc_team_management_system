@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { uploadToOSS } from '@/lib/oss'
+import { saveFile } from '@/lib/storage'
 
 // Blocked dangerous file extensions
 const BLOCKED_EXTENSIONS = [
@@ -54,10 +54,10 @@ export async function POST(req: NextRequest) {
     const sanitizedName = originalName.substring(0, 100) // Limit filename length
     const objectKey = `tasks/${session.user.id}/${timestamp}-${sanitizedName}`
 
-    // Upload to OSS
+    // Store it (local disk or OSS, per STORAGE_BACKEND); fileUrl is the permanent /api/files link
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
-    const { url: fileUrl } = await uploadToOSS(buffer, objectKey, file.type)
+    const { url: fileUrl } = await saveFile(objectKey, buffer, file.type)
 
     return NextResponse.json({
       fileUrl,

@@ -7,12 +7,13 @@ import { parseMentions } from '@/lib/mentions'
 import { notifyMention } from '@/lib/notifications'
 import { canViewTask } from '@/lib/task-access'
 import { mentionableUserIds } from '@/lib/mention-scope'
+import { isFileLink } from '@/lib/storage'
 
 const createCommentSchema = z.object({
   content: z.string().max(500, 'Comment must be 500 characters or fewer').default(''),
   parentId: z.string().optional(),
-  imageUrl: z.string().url().optional().nullable(), // Legacy support
-  fileUrl: z.string().url().optional().nullable(),
+  imageUrl: z.string().refine(isFileLink, 'Invalid file link').optional().nullable(), // Legacy support
+  fileUrl: z.string().refine(isFileLink, 'Invalid file link').optional().nullable(),
   fileName: z.string().max(255).optional().nullable(),
   fileType: z.string().max(100).optional().nullable(),
   fileSize: z.number().int().positive().optional().nullable(),

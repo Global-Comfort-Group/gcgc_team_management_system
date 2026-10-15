@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { uploadToOSS, deleteFromOSS, getObjectKeyFromUrl } from '@/lib/oss'
+import { saveFile, deleteFile, keyFromLink, safeExtension } from '@/lib/storage'
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
 const MAX_FILE_SIZE = 2 * 1024 * 1024 // 2MB
@@ -43,13 +43,13 @@ export async function POST(req: NextRequest) {
 
     // Generate unique filename
     const timestamp = Date.now()
-    const extension = file.name.split('.').pop()
+    const extension = safeExtension(file.name)
     const objectKey = `profiles/${session.user.id}-${timestamp}.${extension}`
 
-    // Upload to OSS
+    // Store it (local disk or OSS, per STORAGE_BACKEND); imageUrl is the permanent /api/files link
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
-    const { url: imageUrl } = await uploadToOSS(buffer, objectKey, file.type)
+    const { url: imageUrl } = await saveFile(objectKey, buffer, file.type)
 
     // Update user's profile image in database
     await prisma.user.update({
@@ -57,11 +57,11 @@ export async function POST(req: NextRequest) {
       data: { image: imageUrl }
     })
 
-    // Clean up old profile image if it exists and is an OSS file
+    // Clean up the old profile image if it is one of our stored files
     if (currentUser?.image) {
-      const oldObjectKey = getObjectKeyFromUrl(currentUser.image)
-      if (oldObjectKey) {
-        await deleteFromOSS(oldObjectKey)
+      const oldObjectKey = keyFromLink(currentUser.image)
+      if (oldObjectKey && oldObjectKey !== objectKey) {
+        await deleteFile(oldObjectKey)
       }
     }
 

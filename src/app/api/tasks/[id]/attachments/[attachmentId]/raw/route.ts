@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { canViewTask } from '@/lib/task-access'
+import { keyFromLink, openStoredFile } from '@/lib/storage'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,14 +61,24 @@ export async function GET(
   }
 
   try {
-    const upstream = await fetch(attachment.fileUrl)
-    if (!upstream.ok || !upstream.body) {
+    // Stored files (/api/files/<key>, or a legacy OSS URL) are read from local
+    // disk, or from the bucket for one not copied yet; any other absolute URL is
+    // fetched as before. A relative link cannot be fetch()ed server-side.
+    const key = keyFromLink(attachment.fileUrl)
+    let body: ReadableStream | null = null
+    if (key) {
+      body = (await openStoredFile(key))?.body ?? null
+    } else if (/^https?:\/\//i.test(attachment.fileUrl)) {
+      const upstream = await fetch(attachment.fileUrl)
+      if (upstream.ok && upstream.body) body = upstream.body
+    }
+    if (!body) {
       return NextResponse.json({ error: 'Could not fetch the file.' }, { status: 502 })
     }
 
     // Stream rather than buffer: attachments can be large and there is no
     // reason to hold one in memory to hand it straight on.
-    return new NextResponse(upstream.body, {
+    return new NextResponse(body, {
       status: 200,
       headers: {
         'Content-Type': type,
