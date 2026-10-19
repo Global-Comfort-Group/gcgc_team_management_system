@@ -1,0 +1,12 @@
+# Image builds read this file instead of the server's .dockerignore.
+# .env must stay included: the build reads it.
+node_modules
+.next
+.git
+*.log
+# Stored files: the uploads mount supplies them at runtime.
+public/uploads
+# Database dumps and hand-made backups on the server.
+prod.dump
+backups
+*.bak*

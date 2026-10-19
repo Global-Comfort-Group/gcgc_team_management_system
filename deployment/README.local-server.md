@@ -33,7 +33,7 @@ artefact, not an outage. Container commands need `sudo`.
 |---|---|---|
 | `docker-compose.local-server.yml` | `docker-compose.yml` | The whole 4-service stack |
 | `Dockerfile.local-server` | `Dockerfile` | `node:20-bookworm-slim`; `npm ci`, then `prisma generate && next build` |
-| `dockerignore.local-server` | `.dockerignore` | Renamed — a functional `.dockerignore` must sit beside its build context, and this is a copy of record, not a working file |
+| `dockerignore.local-server` | `.dockerignore` | Renamed — a functional `.dockerignore` must sit beside its build context, and this is a copy of record, not a working file. **Builds no longer read the live one**: podman uses the tracked `.containerignore` at the repo root instead (one or the other, never both) |
 | `Caddyfile.local-server` | `Caddyfile` | Already tracked; refreshed here to match the live file |
 | `update.sh.local-server` | `update.sh` | Already tracked and **already current** — byte-identical to the server, no change needed |
 

@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { getTaskInvolvement, canViewTask } from '@/lib/task-access'
-import { uploadToOSS } from '@/lib/oss'
+import { saveFile } from '@/lib/storage'
 
 const BLOCKED_EXTENSIONS = [
   '.exe', '.bat', '.cmd', '.sh', '.ps1', '.dll', '.so',
@@ -92,7 +92,7 @@ export async function POST(
 
       const bytes = await file.arrayBuffer()
       const buffer = Buffer.from(bytes)
-      const { url: fileUrl } = await uploadToOSS(buffer, objectKey, file.type)
+      const { url: fileUrl } = await saveFile(objectKey, buffer, file.type)
 
       fileFields = {
         fileUrl,

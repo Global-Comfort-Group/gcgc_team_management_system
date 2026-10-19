@@ -18,6 +18,7 @@ import { broadcastTaskChange } from '@/lib/task-events'
 import { allocateTicketNumber, applyManualTicketNumber, TicketNumberError } from '@/lib/ticket-allocate'
 import { resolveRoleAddressing } from '@/lib/board-roles'
 import { maybeArchiveStaleCompletedTasks } from '@/lib/auto-archive'
+import { isFileLink } from '@/lib/storage'
 
 const cascadeStepSchema = z.object({
   title: z.string().min(1).max(200),
@@ -76,9 +77,9 @@ const createTaskSchema = z.object({
   customStatusId: z.string().optional().nullable(),
   // Per-board custom field values
   fieldValues: z.array(z.object({ fieldId: z.string(), value: z.string().nullable() })).optional(),
-  // File attachments (uploaded to OSS via /api/upload/task-file before submit)
+  // File attachments (uploaded via /api/upload/task-file before submit)
   attachments: z.array(z.object({
-    fileUrl: z.string().url(),
+    fileUrl: z.string().refine(isFileLink, 'Invalid file link'),
     fileName: z.string().min(1).max(255),
     fileType: z.string().optional().nullable(),
     fileSize: z.number().int().nonnegative().optional().nullable(),
